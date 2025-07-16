@@ -25,17 +25,38 @@ const Header = () => {
 			>
 				<Box
 					sx={{
-						width: '1440px',
+						width: '100%',
+						maxWidth: '1440px',
 						mx: 'auto',
-						px: { xs: 2, md: 4 },
+						px: { xs: 2, sm: 3, md: 4 },
 						display: 'flex',
 						alignItems: 'center',
 						justifyContent: 'space-between',
 					}}
 				>
-					<LogoSection scrollTo={scrollTo} />
-					{!isMobile && <NavSection scrollTo={scrollTo} />}
-					<CartSection isMobile={isMobile} setDrawerOpen={setDrawerOpen} />
+					{isMobile ? (
+						<Box
+							sx={{
+								display: 'flex',
+								alignItems: 'center',
+								justifyContent: 'space-between',
+								width: '100%',
+							}}
+						>
+							<Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+								<LogoSection scrollTo={scrollTo} />
+							</Box>
+							<Box sx={{ ml: 'auto' }}>
+								<CartSection isMobile setDrawerOpen={setDrawerOpen} />
+							</Box>
+						</Box>
+					) : (
+						<>
+							<LogoSection scrollTo={scrollTo} />
+							<NavSection scrollTo={scrollTo} />
+							<CartSection isMobile={false} setDrawerOpen={setDrawerOpen} />
+						</>
+					)}
 				</Box>
 			</AppBar>
 

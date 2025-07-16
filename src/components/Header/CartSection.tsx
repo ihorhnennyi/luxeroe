@@ -9,14 +9,16 @@ const CartSection = ({
 	isMobile: boolean
 	setDrawerOpen: (open: boolean) => void
 }) => (
-	<Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
-		<Badge badgeContent={3} color='error'>
-			<ShoppingCartIcon
-				sx={{ color: '#AAAAAA', fontSize: '25px', cursor: 'pointer' }}
-			/>
-		</Badge>
+	<Box sx={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+		<Box sx={{ mr: 2 }}>
+			<Badge badgeContent={3} color='error'>
+				<ShoppingCartIcon
+					sx={{ color: '#AAAAAA', fontSize: '25px', cursor: 'pointer' }}
+				/>
+			</Badge>
+		</Box>
 		{isMobile && (
-			<IconButton onClick={() => setDrawerOpen(true)}>
+			<IconButton onClick={() => setDrawerOpen(true)} sx={{ pr: 4 }}>
 				<MenuIcon sx={{ color: '#AAAAAA' }} />
 			</IconButton>
 		)}

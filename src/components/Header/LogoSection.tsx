@@ -14,7 +14,8 @@ const LogoSection = ({ scrollTo }: { scrollTo: (id: string) => void }) => (
 		}}
 		onClick={() => scrollTo('sale-section')}
 	>
-		<Image src={logo} alt='Logo' height={40} />
+		<Image src={logo} alt='Logo' height={40} style={{ minWidth: 40 }} />
+
 		<Typography
 			variant='h6'
 			sx={{
