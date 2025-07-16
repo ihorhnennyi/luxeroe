@@ -1,8 +1,4 @@
-'use client'
-
-import theme from '@/theme/theme'
-import CssBaseline from '@mui/material/CssBaseline'
-import { ThemeProvider } from '@mui/material/styles'
+import Header from '@/components/Header/Header'
 
 export default function RootLayout({
 	children,
@@ -12,10 +8,8 @@ export default function RootLayout({
 	return (
 		<html lang='uk'>
 			<body>
-				<ThemeProvider theme={theme}>
-					<CssBaseline />
-					{children}
-				</ThemeProvider>
+				<Header />
+				{children}
 			</body>
 		</html>
 	)
