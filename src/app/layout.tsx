@@ -1,10 +1,8 @@
-import type { Metadata } from 'next'
-import './globals.css'
+'use client'
 
-export const metadata: Metadata = {
-	title: 'Ikra | Premium Caviar Store',
-	description: 'High-quality caviar with delivery in Ukraine.',
-}
+import theme from '@/theme/theme'
+import CssBaseline from '@mui/material/CssBaseline'
+import { ThemeProvider } from '@mui/material/styles'
 
 export default function RootLayout({
 	children,
@@ -12,8 +10,13 @@ export default function RootLayout({
 	children: React.ReactNode
 }) {
 	return (
-		<html lang='en'>
-			<body>{children}</body>
+		<html lang='uk'>
+			<body>
+				<ThemeProvider theme={theme}>
+					<CssBaseline />
+					{children}
+				</ThemeProvider>
+			</body>
 		</html>
 	)
 }
