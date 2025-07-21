@@ -21,14 +21,12 @@ const MobileDrawer = ({ open, onClose, scrollTo }: Props) => (
 				flexDirection: 'column',
 			}}
 		>
-			{/* Header (Close Button) */}
 			<Box sx={{ display: 'flex', justifyContent: 'flex-end', p: 2 }}>
 				<IconButton onClick={onClose}>
 					<CloseIcon sx={{ color: '#fff' }} />
 				</IconButton>
 			</Box>
 
-			{/* Navigation */}
 			<Box
 				sx={{
 					flexGrow: 1,
@@ -53,7 +51,6 @@ const MobileDrawer = ({ open, onClose, scrollTo }: Props) => (
 				))}
 			</Box>
 
-			{/* Footer (Social Links) */}
 			<Box
 				sx={{
 					p: 2,

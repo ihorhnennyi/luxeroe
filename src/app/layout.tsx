@@ -1,4 +1,4 @@
-import Header from '@/components/Header/Header'
+import ClientLayout from './ClientLayout'
 
 export default function RootLayout({
 	children,
@@ -8,8 +8,7 @@ export default function RootLayout({
 	return (
 		<html lang='uk'>
 			<body>
-				<Header />
-				{children}
+				<ClientLayout>{children}</ClientLayout>
 			</body>
 		</html>
 	)

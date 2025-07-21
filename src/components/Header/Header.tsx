@@ -1,10 +1,9 @@
-'use client'
-
 import { scrollToElement } from '@/utils/scrollTo'
 import { AppBar, Box, useMediaQuery } from '@mui/material'
 import { useState } from 'react'
+
+import LogoBlock from '../common/LogoBlock'
 import CartSection from './CartSection'
-import LogoSection from './LogoSection'
 import MobileDrawer from './MobileDrawer'
 import NavSection from './NavSection'
 
@@ -44,7 +43,7 @@ const Header = () => {
 							}}
 						>
 							<Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-								<LogoSection scrollTo={scrollTo} />
+								<LogoBlock scrollTo={scrollTo} />
 							</Box>
 							<Box sx={{ ml: 'auto' }}>
 								<CartSection isMobile setDrawerOpen={setDrawerOpen} />
@@ -52,7 +51,7 @@ const Header = () => {
 						</Box>
 					) : (
 						<>
-							<LogoSection scrollTo={scrollTo} />
+							<LogoBlock scrollTo={scrollToElement} />
 							<NavSection scrollTo={scrollTo} />
 							<CartSection isMobile={false} setDrawerOpen={setDrawerOpen} />
 						</>
