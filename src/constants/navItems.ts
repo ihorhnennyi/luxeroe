@@ -1,4 +1,6 @@
-export const navItems = [
+import { NavItem } from '@/types/navItem'
+
+export const navItems: NavItem[] = [
 	{ label: 'Акції', id: 'sale-section' },
 	{ label: 'Каталог', id: 'catalog-section' },
 	{ label: 'Як замовити', id: 'how-to-order' },

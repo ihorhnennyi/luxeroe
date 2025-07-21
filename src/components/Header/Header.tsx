@@ -1,5 +1,6 @@
 'use client'
 
+import { scrollToElement } from '@/utils/scrollTo'
 import { AppBar, Box, useMediaQuery } from '@mui/material'
 import { useState } from 'react'
 import CartSection from './CartSection'
@@ -12,8 +13,7 @@ const Header = () => {
 	const [drawerOpen, setDrawerOpen] = useState(false)
 
 	const scrollTo = (id: string) => {
-		const el = document.getElementById(id)
-		if (el) el.scrollIntoView({ behavior: 'smooth' })
+		scrollToElement(id)
 		setDrawerOpen(false)
 	}
 
