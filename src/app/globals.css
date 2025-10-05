@@ -1,0 +1,147 @@
+:root {
+  --leaf-count: 18;
+  --leaf-grad-a: #c27b1e;
+  --leaf-grad-b: #8f4d0b;
+}
+
+html {
+  overflow-y: scroll;
+}
+
+html,
+body {
+  scroll-behavior: smooth;
+  overscroll-behavior: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+body {
+  background: radial-gradient(
+      1000px 600px at 10% 0%,
+      rgba(242, 193, 78, 0.15),
+      transparent 70%
+    ),
+    radial-gradient(
+      900px 500px at 100% 10%,
+      rgba(183, 92, 54, 0.12),
+      transparent 70%
+    ),
+    linear-gradient(180deg, #fff8ee 0%, #fff4e3 60%, #fffcf8 100%);
+  background-attachment: fixed;
+  color-scheme: light;
+}
+.app-shell {
+  min-height: 100dvh;
+  padding-left: env(safe-area-inset-left, 0);
+  padding-right: env(safe-area-inset-right, 0);
+}
+
+@media (max-width: 600px) {
+  main {
+    overflow-x: clip;
+  }
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image: radial-gradient(
+    rgba(255, 255, 255, 0.2) 1px,
+    transparent 1px
+  );
+  background-size: 2px 2px;
+  opacity: 0.2;
+  mix-blend-mode: overlay;
+  z-index: 0;
+}
+
+/* контейнер с листьями поверх контента */
+.leaves {
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  z-index: 10;
+}
+
+/* лист */
+.leaf {
+  position: absolute;
+  top: -12vh; /* старт чуть выше экрана */
+  left: 0; /* горизонталь задаём инлайном: left: 0..100vw */
+  width: var(--size, 16px);
+  height: var(--size, 16px);
+  opacity: var(--opacity, 0.95);
+  background: radial-gradient(var(--leaf-grad-a), var(--leaf-grad-b));
+  border-radius: 2px 50% 50% 50%;
+  filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.18)) blur(var(--blur, 0px));
+  transform-origin: 50% 10%;
+  will-change: transform;
+
+  /* две анимации:
+     - leaf-move: падение + вращение (через transform)
+     - leaf-sway: покачивание влево-вправо (через translate – отдельное свойство)
+  */
+  animation: leaf-move var(--dur, 10s) linear var(--delay, 0s) infinite,
+    leaf-sway calc(var(--dur, 10s) * 0.45) ease-in-out var(--delay, 0s) infinite
+      alternate;
+}
+
+/* падение + вращение */
+@keyframes leaf-move {
+  from {
+    transform: translateY(-12vh) rotate(var(--rot, 0deg)) scale(var(--scale, 1))
+      scaleX(var(--flip, 1));
+  }
+  to {
+    transform: translateY(120vh) rotate(calc(var(--rot, 0deg) + 360deg))
+      scale(var(--scale, 1)) scaleX(var(--flip, 1));
+  }
+}
+
+/* покачивание — индивидуальное свойство translate (без reflow) */
+@keyframes leaf-sway {
+  from {
+    translate: calc(var(--sway, 30px) * -1) 0;
+  }
+  to {
+    translate: var(--sway, 30px) 0;
+  }
+}
+
+/* вариант с картинкой (опционально) */
+.leaf.leaf--img {
+  background: none;
+  background-image: var(--img, none);
+  background-size: contain;
+  background-repeat: no-repeat;
+  width: var(--size, 22px);
+  height: var(--size, 22px);
+}
+
+/* глубина — немного разных параметров */
+.leaf:nth-child(3n) {
+  --scale: 0.85;
+  --blur: 0.6px;
+  --sway: 22px;
+}
+.leaf:nth-child(3n + 1) {
+  --scale: 1;
+  --blur: 0.2px;
+  --sway: 30px;
+}
+.leaf:nth-child(3n + 2) {
+  --scale: 1.15;
+  --blur: 0px;
+  --sway: 38px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .leaf {
+    animation: none !important;
+    opacity: 0.8;
+    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.12));
+  }
+}
