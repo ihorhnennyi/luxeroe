@@ -3,7 +3,7 @@ import type { Product } from "@/types/product";
 
 export const products: Product[] = [
   {
-    id: "1",
+    id: "5",
     slug: "ikra-gorbushi",
     title: "Ікра горбуші",
     image: "/ikra/gorbush.webp",
@@ -23,7 +23,7 @@ export const products: Product[] = [
     },
   },
   {
-    id: "2",
+    id: "6",
     slug: "ikra-schuki",
     title: "Ікра щуки",
     image: "/ikra/shuka.webp",
@@ -43,7 +43,7 @@ export const products: Product[] = [
     },
   },
   {
-    id: "3",
+    id: "7",
     slug: "ikra-goltsya",
     title: "Ікра гольця",
     image: "/ikra/golets.webp",
@@ -62,7 +62,7 @@ export const products: Product[] = [
     },
   },
   {
-    id: "4",
+    id: "8",
     slug: "ikra-keti",
     title: "Ікра кети",
     image: "/ikra/keta.webp",
@@ -81,7 +81,7 @@ export const products: Product[] = [
     },
   },
   {
-    id: "5",
+    id: "9",
     slug: "ikra-lososya",
     title: "Ікра лосося",
     image: "/ikra/losos.webp",
@@ -100,7 +100,7 @@ export const products: Product[] = [
     },
   },
   {
-    id: "6",
+    id: "10",
     slug: "ikra-keti-premium",
     title: "Ікра кети Premium",
     image: "/ikra/keta.webp",
@@ -120,7 +120,7 @@ export const products: Product[] = [
     },
   },
   {
-    id: "7",
+    id: "11",
     slug: "ikra-veslonosa",
     title: "Ікра веслоноса",
     image: "/ikra/veslonos.webp",
