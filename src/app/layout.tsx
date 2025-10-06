@@ -34,7 +34,10 @@ export default function RootLayout({
   const autumn = true;
 
   return (
-    <html lang="ru" /* suppressHydrationWarning можно убрать, если всё чисто */>
+    <html lang="ru">
+      <head>
+        <link rel="icon" href="/favicon.ico" />
+      </head>
       <body>
         <ThemeRegistry>
           <div className="app-shell">
