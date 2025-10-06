@@ -95,14 +95,14 @@ export default function Footer() {
             </Typography>
             <Typography
               component="a"
-              href="mailto:uk.goldikra@gmail.com"
+              href="mailto:luxeroe@gmail.com"
               sx={{
                 color: alpha("#3B2A1E", 0.95),
                 textDecoration: "none",
                 "&:hover": { color: pine },
               }}
             >
-              uk.goldikra@gmail.com
+              luxeroe@gmail.com
             </Typography>
             <Typography sx={{ color: alpha("#3B2A1E", 0.75) }}>
               Пн–Нд: 9:00 – 21:00

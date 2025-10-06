@@ -9,7 +9,7 @@ export const promos: PromoSlide[] = [
     subtitle:
       "Соковиті ікринки з чистим післясмаком. Ідеально для тостів, тарталеток і святкових сетів.",
     bullets: ["Свіжа партія щодня", "Виразний смак", "Охолоджена доставка"],
-    imageSrc: "/img/gorbush.webp",
+    imageSrc: "/promo/gorbush.jpg",
     imageAlt: "Ікра горбуші",
     price: 279,
     priceNote: "Вигідний старт",
@@ -20,7 +20,7 @@ export const promos: PromoSlide[] = [
       id: "bundle-gorbush-279",
       title: "Ікра горбуші — промо баночка",
       price: 279,
-      image: "/img/gorbush.webp",
+      image: "/promo/gorbush.jpg",
       note: "Промо: перша баночка",
       openCart: true,
     },
@@ -34,10 +34,10 @@ export const promos: PromoSlide[] = [
     subtitle:
       "Влаштуй щедру подачу: більше смаку, більше приводів сказати «вау».",
     bullets: ["Ідеально для вечірки", "Щедра порція", "Готово одним кліком"],
-    imageSrc: "/img/gorbush.webp", // ← поставь реальную картинку набора (3 банки в кадрі)
+    imageSrc: "/promo/3.jpg",
     imageAlt: "Набір 3 банки (2+1)",
     ctaText: "Взяти сет 2+1",
-    price: 1098, // цена сета целиком
+    price: 1098,
     priceNote: "За 3 банки",
     priceStyle: "autumn",
     action: {
@@ -45,21 +45,19 @@ export const promos: PromoSlide[] = [
       id: "bundle-2plus1",
       title: "Набір 2+1 (3 банки)",
       price: 1098,
-      image: "/img/gorbush.webp",
+      image: "/promo/3.jpg",
       note: "Фіксована ціна за сет",
       openCart: true,
     },
     tags: ["Party-ready"],
   },
-
-  // 3) Сет 5 — одна позиція-сет
   {
     eyebrow: "Набір вигоди",
     title: "П’ятірка для свята",
     subtitle:
       "Закрий питання частувань одним кліком: вистачить і на тости, і на роли.",
     bullets: ["На велику компанію", "До ігристого", "Максимальна вигода"],
-    imageSrc: "/img/gorbush.webp", // ← картинка набора на 5 банок
+    imageSrc: "/promo/5.jpg",
     imageAlt: "Набір із 5 банок",
     price: 1500,
     priceNote: "За 5 банок",
@@ -70,7 +68,7 @@ export const promos: PromoSlide[] = [
       id: "bundle-5",
       title: "Набір із 5 банок",
       price: 1500,
-      image: "/img/gorbush.webp",
+      image: "/promo/5.jpg",
       note: "Фікс-ціна за 5 банок",
       openCart: true,
     },

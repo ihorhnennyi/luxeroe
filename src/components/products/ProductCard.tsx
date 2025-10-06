@@ -13,12 +13,11 @@ import {
   Typography,
 } from "@mui/material";
 import { alpha } from "@mui/material/styles";
-import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import AddToCartButton from "./AddToCartButton";
 import SpecLine from "./SpecLine";
 
-/* ---------- безопасное форматирование валюты (без SSR рассинхрона) ---------- */
+/* ---------- безопасное форматирование валюты ---------- */
 function SafeCurrency({ value }: { value: number }) {
   const [txt, setTxt] = useState<string>("");
   useEffect(() => {
@@ -34,9 +33,7 @@ function SafeCurrency({ value }: { value: number }) {
       setTxt(`${Math.round(value)} ₴`);
     }
   }, [value]);
-  return (
-    <span suppressHydrationWarning>{txt || `${Math.round(value)} ₴`}</span>
-  );
+  return <span suppressHydrationWarning>{txt || `${Math.round(value)} ₴`}</span>;
 }
 
 /* ---------- утилиты ---------- */
@@ -107,35 +104,26 @@ export default function ProductCard({ product }: { product: Product }) {
         }}
       >
         <Box
-          component={Link}
-          href={`/product/${product.slug}`}
-          aria-label={product.title}
-          sx={{ display: "block", position: "relative", aspectRatio: "1 / 1" }}
-        >
-          <Box
-            component="img"
-            src={product.image || "/placeholder.jpg"}
-            alt={product.title}
-            loading="lazy"
-            onError={(e: React.SyntheticEvent<HTMLImageElement>) => {
-              const img = e.currentTarget;
-              if (!img.src.includes("placeholder.jpg"))
-                img.src = "/placeholder.jpg";
-            }}
-            sx={{
-              position: "absolute",
-              inset: 0,
-              width: "100%",
-              height: "100%",
-              objectFit: "cover",
-              transition: "transform .35s ease",
-              backgroundColor: "#f5f5f5",
-              "@media (hover:hover)": {
-                "&:hover": { transform: "scale(1.03)" },
-              },
-            }}
-          />
-        </Box>
+          component="img"
+          src={product.image || "/placeholder.jpg"}
+          alt={product.title}
+          loading="lazy"
+          onError={(e: React.SyntheticEvent<HTMLImageElement>) => {
+            const img = e.currentTarget;
+            if (!img.src.includes("placeholder.jpg")) img.src = "/placeholder.jpg";
+          }}
+          sx={{
+            display: "block",
+            width: "100%",
+            aspectRatio: "1 / 1",
+            objectFit: "cover",
+            transition: "transform .35s ease",
+            backgroundColor: "#f5f5f5",
+            "@media (hover:hover)": {
+              "&:hover": { transform: "scale(1.03)" },
+            },
+          }}
+        />
 
         {(product.badge || pct) && (
           <Stack
@@ -146,7 +134,6 @@ export default function ProductCard({ product }: { product: Product }) {
               top: { xs: 8, sm: 12 },
               left: { xs: 8, sm: 12 },
               zIndex: 2,
-              pointerEvents: "none",
             }}
           >
             {product.badge && (
@@ -166,7 +153,6 @@ export default function ProductCard({ product }: { product: Product }) {
                   height: { xs: 20, sm: 22 },
                   fontSize: { xs: 11, sm: 12 },
                   fontWeight: 700,
-                  pointerEvents: "auto",
                 }}
               />
             )}
@@ -181,7 +167,6 @@ export default function ProductCard({ product }: { product: Product }) {
                   height: { xs: 20, sm: 22 },
                   fontSize: { xs: 11, sm: 12 },
                   fontWeight: 700,
-                  pointerEvents: "auto",
                 }}
               />
             )}
@@ -199,10 +184,8 @@ export default function ProductCard({ product }: { product: Product }) {
           flexGrow: 1,
         }}
       >
-        {/* Название */}
+        {/* Название (просто текст, без ссылки) */}
         <Typography
-          component={Link}
-          href={`/product/${product.slug}`}
           variant="subtitle1"
           sx={{
             display: "-webkit-box",
@@ -215,7 +198,7 @@ export default function ProductCard({ product }: { product: Product }) {
             lineHeight: 1.25,
             mb: 0.75,
             fontSize: { xs: 14.5, sm: 15.5 },
-            "&:hover": { color: "primary.main" },
+            cursor: "default",
           }}
         >
           {product.title}
@@ -245,11 +228,7 @@ export default function ProductCard({ product }: { product: Product }) {
 
         {/* Варианты веса */}
         {product.weightOptions?.length ? (
-          <Stack
-            direction="row"
-            spacing={0.75}
-            sx={{ mb: 1, flexWrap: "wrap" }}
-          >
+          <Stack direction="row" spacing={0.75} sx={{ mb: 1, flexWrap: "wrap" }}>
             {product.weightOptions.map((w) => (
               <Chip
                 key={w}
@@ -257,10 +236,7 @@ export default function ProductCard({ product }: { product: Product }) {
                 size="small"
                 variant={variant === w ? "filled" : "outlined"}
                 color={variant === w ? "primary" : "default"}
-                onClick={(e) => {
-                  e.preventDefault();
-                  setVariant(w);
-                }}
+                onClick={() => setVariant(w)}
                 sx={{
                   borderRadius: 1,
                   height: { xs: 24, sm: 26 },
@@ -271,7 +247,7 @@ export default function ProductCard({ product }: { product: Product }) {
           </Stack>
         ) : null}
 
-        {/* Спеки (как просил — не менял) */}
+        {/* Спеки */}
         {product.description && (
           <Stack spacing={0.5} sx={{ mb: 1.25 }}>
             <SpecLine
@@ -307,10 +283,7 @@ export default function ProductCard({ product }: { product: Product }) {
         <Box sx={{ mt: "auto" }}>
           <AddToCartButton
             disabled={product.inStock === false}
-            onClick={(e?: any) => {
-              e?.preventDefault?.();
-              handleAdd();
-            }}
+            onClick={() => handleAdd()}
           />
         </Box>
       </CardContent>
