@@ -125,7 +125,7 @@ export default function Header() {
               />
               <Typography
                 component="a"
-                href="tel:+380631978302"
+                href="tel:+380939858552"
                 sx={{
                   fontWeight: 700,
                   color: pine,
@@ -135,12 +135,12 @@ export default function Header() {
                   "&:hover": { color: russet },
                 }}
               >
-                +38 (063) 197-83-02
+                +38 (093) 985-85-52
               </Typography>
             </Stack>
 
             <IconButton
-              href="tel:+380631978302"
+              href="tel:+380939858552"
               sx={{ display: { xs: "inline-flex", sm: "none" } }}
               aria-label="Позвонить"
             >
