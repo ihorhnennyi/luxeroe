@@ -61,6 +61,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             `,
           }}
         />
+
+        <meta name="google-site-verification" content="CXlHRnnNQzYZm6fOmKU4iBqWVmIqsdGBXMuIoIfNW8I" />
       </head>
 
       <body>
