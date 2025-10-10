@@ -1,151 +1,149 @@
-"use client";
+'use client'
 
-import type { ButtonProps } from "@mui/material";
-import { Button } from "@mui/material";
-import { alpha } from "@mui/material/styles";
-import Link from "next/link";
+import type { ButtonProps, SxProps, Theme } from '@mui/material'
+import { Button } from '@mui/material'
+import { alpha } from '@mui/material/styles'
+import Link from 'next/link'
 
-type AnimMode = "pulse" | "sheen" | "none";
+type AnimMode = 'pulse' | 'sheen' | 'none'
+type GreenTone = 'pine' | 'emerald' | 'teal'
 
 type Props = {
-  href?: string;
-  anim?: AnimMode;
-  forceButton?: boolean;
-} & ButtonProps;
+  href?: string
+  anim?: AnimMode
+  forceButton?: boolean
+  greenTone?: GreenTone // ← выбор зелёного
+} & ButtonProps
 
-const reducedMotionSx = {
-  animation: "none !important",
-  "&::before, &::after": { animation: "none !important" },
-} as const;
+const schemes = {
+  pine: {
+    grad: 'linear-gradient(180deg, #33B49A 0%, #1F8376 58%, #0F5E5B 100%)',
+    gradHover: 'linear-gradient(180deg, #2EAA91 0%, #1B786C 58%, #0C5350 100%)',
+    shadow: (t: Theme) =>
+      `0 10px 22px ${alpha('#0C5350', 0.26)}, inset 0 1px 0 ${alpha('#FFFFFF', 0.22)}`,
+    shadowHover: (t: Theme) =>
+      `0 12px 26px ${alpha('#0C5350', 0.32)}, inset 0 1px 0 ${alpha('#FFFFFF', 0.22)}`,
+    ring: { xs: '1px solid rgba(51,180,154,.45)', sm: '2px solid rgba(51,180,154,.5)' },
+    glow: 'radial-gradient(50% 60% at 50% 50%, rgba(51,180,154,.28) 0%, rgba(51,180,154,0) 70%)'
+  },
+  emerald: {
+    grad: 'linear-gradient(180deg, #38C48E 0%, #179B77 58%, #0F6E58 100%)',
+    gradHover: 'linear-gradient(180deg, #33B985 0%, #158E6D 58%, #0C614E 100%)',
+    shadow: (t: Theme) =>
+      `0 10px 22px ${alpha('#0C614E', 0.26)}, inset 0 1px 0 ${alpha('#FFFFFF', 0.22)}`,
+    shadowHover: (t: Theme) =>
+      `0 12px 26px ${alpha('#0C614E', 0.32)}, inset 0 1px 0 ${alpha('#FFFFFF', 0.22)}`,
+    ring: { xs: '1px solid rgba(56,196,142,.42)', sm: '2px solid rgba(56,196,142,.48)' },
+    glow: 'radial-gradient(50% 60% at 50% 50%, rgba(56,196,142,.26) 0%, rgba(56,196,142,0) 70%)'
+  },
+  teal: {
+    grad: 'linear-gradient(180deg, #37B3C4 0%, #1C8AA0 58%, #0F5E73 100%)',
+    gradHover: 'linear-gradient(180deg, #32A9BA 0%, #177E93 58%, #0C5467 100%)',
+    shadow: (t: Theme) =>
+      `0 10px 22px ${alpha('#0C5467', 0.26)}, inset 0 1px 0 ${alpha('#FFFFFF', 0.22)}`,
+    shadowHover: (t: Theme) =>
+      `0 12px 26px ${alpha('#0C5467', 0.32)}, inset 0 1px 0 ${alpha('#FFFFFF', 0.22)}`,
+    ring: { xs: '1px solid rgba(55,179,196,.42)', sm: '2px solid rgba(55,179,196,.48)' },
+    glow: 'radial-gradient(50% 60% at 50% 50%, rgba(55,179,196,.24) 0%, rgba(55,179,196,0) 70%)'
+  }
+} as const
 
 export default function AnimatedCta({
   href,
   children,
-  anim = "pulse",
+  anim = 'pulse',
   forceButton = false,
+  greenTone = 'pine',
   ...btn
 }: Props) {
-  const baseSx = {
-    position: "relative",
-    overflow: "visible",
+  const cs = schemes[greenTone]
+
+  const baseSx: SxProps<Theme> = {
+    position: 'relative',
+    overflow: 'visible',
     fontWeight: 900,
     letterSpacing: { xs: 0.2, sm: 0.3 },
-    color: "#fff",
+    color: '#fff',
     fontSize: { xs: 14, sm: 15, md: 16 },
     px: { xs: 2.25, sm: 3 },
     py: { xs: 1, sm: 1.25 },
-    borderRadius: 2,
+    borderRadius: 999, // более «капсульная» форма как на скрине
     minHeight: { xs: 38, sm: 44 },
-    textTransform: "none",
-    background:
-      "linear-gradient(180deg, #F2C14E 0%, #E08E45 55%, #B75C36 100%)",
-    boxShadow: (t: any) =>
-      `0 10px 22px ${alpha("#B75C36", 0.28)}, 0 2px 0 ${alpha(
-        t.palette.common.black,
-        0.08
-      )} inset`,
-    "&:hover": {
-      background:
-        "linear-gradient(180deg, #EFB547 0%, #DB7F3F 55%, #A6512F 100%)",
-      boxShadow: (t: any) =>
-        `0 12px 26px ${alpha("#B75C36", 0.33)}, 0 2px 0 ${alpha(
-          t.palette.common.black,
-          0.08
-        )} inset`,
+    textTransform: 'none',
+    // ВАЖНО: никаких transform у кнопки → текст остаётся резким
+    background: cs.grad,
+    boxShadow: t => cs.shadow(t),
+    '&:hover': {
+      background: cs.gradHover,
+      boxShadow: t => cs.shadowHover(t)
     },
 
-    // ====== анимации ======
-    ...(anim === "pulse"
+    ...(anim === 'pulse'
       ? {
-          "@keyframes btnBreath": {
-            "0%, 100%": { transform: "translateZ(0) scale(1)" },
-            "50%": { transform: "translateZ(0) scale(1.012)" }, // мягче
-          },
-          animation: {
-            xs: "btnBreath 2.6s ease-in-out infinite",
-            sm: "btnBreath 2.2s ease-in-out infinite",
-          },
-          "&::after": {
+          // Пульсируем только внешним «кольцом», кнопка статична
+          '&::after': {
             content: '""',
-            position: "absolute",
+            position: 'absolute',
             inset: { xs: -4, sm: -6 },
             borderRadius: 999,
-            border: {
-              xs: "1px solid rgba(242,193,78,.5)",
-              sm: "2px solid rgba(242,193,78,.55)",
+            border: cs.ring,
+            pointerEvents: 'none',
+            '@keyframes ring': {
+              '0%': { transform: 'scale(0.96)', opacity: 0.5 },
+              '70%': { transform: 'scale(1.12)', opacity: 0 },
+              '100%': { transform: 'scale(1.12)', opacity: 0 }
             },
-            pointerEvents: "none",
-            "@keyframes pulseRing": {
-              "0%": { transform: "scale(0.9)", opacity: 0.5 },
-              "70%": { transform: "scale(1.15)", opacity: 0 },
-              "100%": { transform: "scale(1.15)", opacity: 0 },
-            },
-            animation: "pulseRing 2s ease-out infinite",
+            animation: 'ring 2s ease-out infinite'
           },
-          "&::before": {
+          // Мягкое свечение только снизу, без blur над текстом
+          '&::before': {
             content: '""',
-            position: "absolute",
-            left: "50%",
-            top: "100%",
-            width: { xs: "60%", sm: "70%" },
-            height: { xs: 14, sm: 18 },
-            transform: "translateX(-50%)",
-            borderRadius: "50%",
-            background:
-              "radial-gradient(50% 60% at 50% 50%, rgba(242,193,78,.38) 0%, rgba(242,193,78,0) 70%)",
-            filter: "blur(6px)",
-            pointerEvents: "none",
-            "@keyframes glow": {
-              "0%,100%": { opacity: 0.5 },
-              "50%": { opacity: 0.25 },
-            },
-            animation: "glow 2.2s ease-in-out infinite",
-          },
-          "@media (prefers-reduced-motion: reduce)": reducedMotionSx,
+            position: 'absolute',
+            left: '50%',
+            top: '100%',
+            width: { xs: '60%', sm: '70%' },
+            height: { xs: 12, sm: 16 },
+            transform: 'translateX(-50%)',
+            borderRadius: '50%',
+            background: cs.glow,
+            filter: 'blur(5px)',
+            pointerEvents: 'none'
+          }
         }
-      : anim === "sheen"
+      : anim === 'sheen'
       ? {
-          overflow: "hidden",
-          "&::after": {
+          overflow: 'hidden',
+          '&::after': {
             content: '""',
-            position: "absolute",
+            position: 'absolute',
             top: 0,
             left: -120,
             width: 90,
-            height: "100%",
-            transform: "skewX(-20deg)",
-            background:
-              "linear-gradient(90deg, transparent, rgba(255,255,255,.35), transparent)",
-            pointerEvents: "none",
+            height: '100%',
+            transform: 'skewX(-20deg)',
+            background: 'linear-gradient(90deg, transparent, rgba(255,255,255,.35), transparent)',
+            pointerEvents: 'none'
           },
-          "@keyframes sheen": {
-            "0%": { left: -120 },
-            "100%": { left: "130%" },
+          '@keyframes sheen': {
+            '0%': { left: -120 },
+            '100%': { left: '130%' }
           },
-          animation: "none",
-          "&:hover::after": { animation: "sheen .9s ease" },
-          "@media (prefers-reduced-motion: reduce)": reducedMotionSx,
+          '&:hover::after': { animation: 'sheen .9s ease' }
         }
-      : {}),
-  } as const;
+      : {})
+  }
 
   if (!href || forceButton) {
     return (
       <Button type="button" disableElevation {...btn} sx={baseSx}>
-        {children}
+        <span style={{ position: 'relative', zIndex: 1 }}>{children}</span>
       </Button>
-    );
+    )
   }
 
   return (
-    <Button
-      component={Link as any}
-      href={href}
-      disableElevation
-      {...btn}
-      sx={baseSx}
-    >
-      {children}
+    <Button component={Link as any} href={href} disableElevation {...btn} sx={baseSx}>
+      <span style={{ position: 'relative', zIndex: 1 }}>{children}</span>
     </Button>
-  );
+  )
 }

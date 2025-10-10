@@ -1,27 +1,37 @@
 // src/app/layout.tsx
-import Footer from "@/components/Footer";
-import Header from "@/components/Header";
-import LeavesClient from "@/components/LeavesClient";
-import ThemeRegistry from "@/components/ThemeRegistry";
-import type { Metadata } from "next";
-import Script from "next/script";
-import "./globals.css";
+import AddToCartAlertHost from '@/components/cart/AddToCartAlertHost'
+import Footer from '@/components/Footer'
+import Header from '@/components/Header'
+import LeavesClient from '@/components/LeavesClient'
+import ThemeRegistry from '@/components/ThemeRegistry'
+import type { Metadata } from 'next'
+import Script from 'next/script'
+import './globals.css'
 
 export const metadata: Metadata = {
-  title: "LuxeRoe — преміальні морепродукти та ікра",
+  title: 'LuxeRoe — преміальні морепродукти та ікра',
   description:
-    "LuxeRoe — інтернет-магазин преміальної ікри. Свіжа червона й чорна ікра. Доставка по всій Україні.",
+    'LuxeRoe — інтернет-магазин преміальної ікри. Свіжа червона й чорна ікра. Доставка по всій Україні.',
   keywords: [
-    "ікра","чорна ікра","червона ікра","морепродукти","креветки","устриці",
-    "краби","морські делікатеси","купити ікру онлайн","доставка морепродуктів",
-    "IKRA.store","ікра Україна",
-  ],
-};
+    'ікра',
+    'чорна ікра',
+    'червона ікра',
+    'морепродукти',
+    'креветки',
+    'устриці',
+    'краби',
+    'морські делікатеси',
+    'купити ікру онлайн',
+    'доставка морепродуктів',
+    'IKRA.store',
+    'ікра Україна'
+  ]
+}
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
-  const autumn = true;
-  const FB_PIXEL_ID = "1176533047701366";
-  const GA_ID = "G-KTCXBPPH1T";
+  const autumn = true
+  const FB_PIXEL_ID = '1176533047701366'
+  const GA_ID = 'G-KTCXBPPH1T'
 
   return (
     <html lang="uk">
@@ -58,11 +68,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               }(window, document,'script','https://connect.facebook.net/en_US/fbevents.js');
               fbq('init', '${FB_PIXEL_ID}');
               fbq('track', 'PageView');
-            `,
+            `
           }}
         />
 
-        <meta name="google-site-verification" content="CXlHRnnNQzYZm6fOmKU4iBqWVmIqsdGBXMuIoIfNW8I" />
+        <meta
+          name="google-site-verification"
+          content="CXlHRnnNQzYZm6fOmKU4iBqWVmIqsdGBXMuIoIfNW8I"
+        />
       </head>
 
       <body>
@@ -71,7 +84,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <img
             height="1"
             width="1"
-            style={{ display: "none" } as any}
+            style={{ display: 'none' } as any}
             src={`https://www.facebook.com/tr?id=${FB_PIXEL_ID}&ev=PageView&noscript=1`}
             alt=""
           />
@@ -81,11 +94,15 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <div className="app-shell">
             <Header />
             <LeavesClient autumn={autumn} />
+
+            {/* ⬇️ Глобальный алерт добавления в корзину */}
+            <AddToCartAlertHost />
+
             <main>{children}</main>
             <Footer />
           </div>
         </ThemeRegistry>
       </body>
     </html>
-  );
+  )
 }
