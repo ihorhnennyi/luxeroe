@@ -1,4 +1,5 @@
 // src/app/layout.tsx
+import FbPageView from '@/components/analytics/FbPageView' // ⬅️ авто PageView при SPA-переходах
 import AddToCartAlertHost from '@/components/cart/AddToCartAlertHost'
 import Footer from '@/components/Footer'
 import Header from '@/components/Header'
@@ -43,7 +44,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           src={`https://www.googletagmanager.com/gtag/js?id=${GA_ID}`}
           strategy="afterInteractive"
         />
-        <Script id="google-analytics" strategy="afterInteractive">
+        <Script id="ga-init" strategy="afterInteractive">
           {`
             window.dataLayer = window.dataLayer || [];
             function gtag(){dataLayer.push(arguments);}
@@ -95,7 +96,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <Header />
             <LeavesClient autumn={autumn} />
 
-            {/* ⬇️ Глобальный алерт добавления в корзину */}
+            {/* авто PageView на клиентской навигации */}
+            <FbPageView />
+
+            {/* глобальный алерт добавления в корзину */}
             <AddToCartAlertHost />
 
             <main>{children}</main>

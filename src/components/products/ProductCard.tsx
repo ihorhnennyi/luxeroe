@@ -2,6 +2,7 @@
 'use client'
 
 import { emitCartAdded } from '@/lib/cartEvents'
+import { fbqTrack } from '@/lib/fb' // ⬅️ fbq утилита
 import { useCart } from '@/store/cart'
 import type { Product } from '@/types/product'
 import { Box, Card, CardContent, Chip, Divider, Stack, Typography } from '@mui/material'
@@ -55,6 +56,18 @@ export default function ProductCard({ product }: { product: Product }) {
     }
   }, [product.badge])
 
+  /* ---------- fbq: ViewContent при маунте карточки ---------- */
+  useEffect(() => {
+    fbqTrack('ViewContent', {
+      content_ids: [product.id],
+      content_type: 'product',
+      content_name: product.title,
+      value: product.price,
+      currency: 'UAH'
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // один раз на карточку
+
   const handleAdd = () => {
     // 1) добавляем в корзину
     add({
@@ -74,6 +87,16 @@ export default function ProductCard({ product }: { product: Product }) {
       variant,
       qty: 1,
       price: product.price
+    })
+
+    // 3) fbq: AddToCart
+    fbqTrack('AddToCart', {
+      content_ids: [product.id],
+      content_type: 'product',
+      content_name: product.title,
+      value: product.price,
+      currency: 'UAH',
+      num_items: 1
     })
   }
 

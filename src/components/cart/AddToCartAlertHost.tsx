@@ -1,6 +1,7 @@
 // src/components/cart/AddToCartAlertHost.tsx
 'use client'
 
+import { fbqTrack } from '@/lib/fb' // ⬅️ fbq утилита
 import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useState } from 'react'
 import AddToCartAlert, { type AlertItem } from './AddToCartAlert'
@@ -31,6 +32,18 @@ export default function AddToCartAlertHost() {
       onContinue={() => setOpen(false)}
       onCheckout={() => {
         setOpen(false)
+
+        // ⬇️ fbq: InitiateCheckout — фиксируем начало оформления из алерта
+        const qty = Math.max(1, item?.qty ?? 1)
+        const unit = item?.promoFirstPrice ?? item?.price ?? 0
+        fbqTrack('InitiateCheckout', {
+          num_items: qty,
+          value: unit * qty,
+          currency: 'UAH',
+          contents: item ? [{ id: item.id, quantity: qty, item_price: unit }] : undefined,
+          content_type: 'product'
+        })
+
         router.push('/cart')
       }}
     />

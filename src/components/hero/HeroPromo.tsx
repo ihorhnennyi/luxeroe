@@ -4,6 +4,7 @@
 import AnimatedCta from '@/components/hero/AnimatedCta'
 import { products } from '@/data/products'
 import { emitCartAdded } from '@/lib/cartEvents'
+import { fbqTrack } from '@/lib/fb' // ⬅️ FB Pixel
 import { useCart } from '@/store/cart'
 import type { PromoSlide } from '@/types/promo'
 import { Box, Chip, Container, Stack, Typography, alpha } from '@mui/material'
@@ -56,7 +57,7 @@ export default function HeroPromo({
   tags,
   action
 }: Props) {
-  const [mounted, setMounted] = useState(false) // ✅ флаг маунта
+  const [mounted, setMounted] = useState(false)
   const [leftMs, setLeftMs] = useState<number | null>(null)
   const [busy, setBusy] = useState(false)
   const guardRef = useRef(false)
@@ -65,6 +66,35 @@ export default function HeroPromo({
   const openCart = useCart(s => s.open)
 
   useEffect(() => setMounted(true), [])
+
+  /* ---------- fbq: ViewContent для промо-слайда ---------- */
+  useEffect(() => {
+    // если слайд рекламирует 1 товар — шлём ViewContent
+    if (!action) return
+    if (action.kind === 'add' && action.items?.length === 1) {
+      const id = action.items[0].id
+      const p = products.find(x => x.id === id)
+      if (p) {
+        fbqTrack('ViewContent', {
+          content_ids: [p.id],
+          content_type: 'product',
+          content_name: p.title,
+          value: typeof price === 'number' ? price : p.price,
+          currency: 'UAH'
+        })
+      }
+    }
+    if (action.kind === 'bundle' && action.id) {
+      fbqTrack('ViewContent', {
+        content_ids: [action.id],
+        content_type: 'product_group',
+        content_name: action.title ?? title,
+        value: action.price ?? price,
+        currency: 'UAH'
+      })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [action])
 
   const handleCta = useCallback(
     (e: React.MouseEvent) => {
@@ -90,6 +120,8 @@ export default function HeroPromo({
 
       try {
         if (action.kind === 'add') {
+          const contents: Array<{ id: string; quantity: number; item_price?: number }> = []
+
           action.items?.forEach(({ id, qty = 1 }) => {
             const p = products.find(x => x.id === id)
             if (!p) return
@@ -108,7 +140,6 @@ export default function HeroPromo({
                 type: 'single'
               } as any)
 
-              // эмитим для алерта
               emitCartAdded({
                 id: p.id,
                 title: `${p.title} — промо баночка`,
@@ -118,6 +149,8 @@ export default function HeroPromo({
                 price: GORBUSH_PRICE,
                 promoFirstPrice: GORBUSH_PROMO_FIRST
               })
+
+              contents.push({ id: p.id, quantity: qty, item_price: GORBUSH_PRICE })
             } else {
               // обычный товар
               addItem({
@@ -130,7 +163,6 @@ export default function HeroPromo({
                 type: 'single'
               } as any)
 
-              // эмитим для алерта
               emitCartAdded({
                 id: p.id,
                 title: p.title,
@@ -139,8 +171,22 @@ export default function HeroPromo({
                 qty,
                 price: p.price
               })
+
+              contents.push({ id: p.id, quantity: qty, item_price: p.price })
             }
           })
+
+          // ⬇️ fbq: AddToCart для промо-добавления (может быть сразу несколько позиций)
+          if (contents.length) {
+            const total = contents.reduce((s, c) => s + (c.item_price ?? 0) * c.quantity, 0)
+            fbqTrack('AddToCart', {
+              contents,
+              content_type: contents.length > 1 ? 'product_group' : 'product',
+              value: total,
+              currency: 'UAH',
+              num_items: contents.reduce((n, c) => n + c.quantity, 0)
+            })
+          }
 
           if (action.openCart !== false) openCart()
         }
@@ -162,13 +208,21 @@ export default function HeroPromo({
             maxQty: 1
           } as any)
 
-          // эмитим для алерта (бандл)
           emitCartAdded({
             id: action.id,
             title: action.title,
             image: action.image ?? imageSrc,
             qty: 1,
             price: action.price
+          })
+
+          // ⬇️ fbq: AddToCart для бандла
+          fbqTrack('AddToCart', {
+            contents: [{ id: action.id, quantity: 1, item_price: action.price }],
+            content_type: 'product_group',
+            value: action.price,
+            currency: 'UAH',
+            num_items: 1
           })
 
           if (action.openCart !== false) openCart()
