@@ -1,5 +1,5 @@
 // src/app/layout.tsx
-import FbPageView from '@/components/analytics/FbPageView' // ⬅️ авто PageView при SPA-переходах
+import FbPageView from '@/components/analytics/FbPageView' // авто PageView при SPA-переходах
 import AddToCartAlertHost from '@/components/cart/AddToCartAlertHost'
 import Footer from '@/components/Footer'
 import Header from '@/components/Header'
@@ -7,6 +7,7 @@ import LeavesClient from '@/components/LeavesClient'
 import ThemeRegistry from '@/components/ThemeRegistry'
 import type { Metadata } from 'next'
 import Script from 'next/script'
+import { Suspense } from 'react'
 import './globals.css'
 
 export const metadata: Metadata = {
@@ -17,14 +18,9 @@ export const metadata: Metadata = {
     'ікра',
     'чорна ікра',
     'червона ікра',
-    'морепродукти',
-    'креветки',
-    'устриці',
-    'краби',
-    'морські делікатеси',
     'купити ікру онлайн',
     'доставка морепродуктів',
-    'IKRA.store',
+    'LUXEROE',
     'ікра Україна'
   ]
 }
@@ -97,7 +93,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <LeavesClient autumn={autumn} />
 
             {/* авто PageView на клиентской навигации */}
-            <FbPageView />
+            <Suspense fallback={null}>
+              <FbPageView />
+            </Suspense>
 
             {/* глобальный алерт добавления в корзину */}
             <AddToCartAlertHost />
