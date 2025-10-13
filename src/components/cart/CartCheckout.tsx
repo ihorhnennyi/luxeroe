@@ -1,7 +1,7 @@
 // src/components/cart/CartCheckout.tsx
 'use client'
 
-import { fbqTrack } from '@/lib/fb' // ⬅️ fbq утилита
+import { fbqTrack } from '@/lib/fb' // безопасный fbq
 import { useCart } from '@/store/cart'
 import { lineTotalFor } from '@/utils/cartPricing'
 import { Box, Button, Stack, TextField, Typography } from '@mui/material'
@@ -21,14 +21,18 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
   const [sending, setSending] = useState(false)
   const [sent, setSent] = useState<null | 'ok' | 'err'>(null)
 
+  const phoneOk = /^\+?\d[\d\s-]{8,}$/.test(phone.trim())
+  const canSubmit =
+    !sending &&
+    items.length > 0 &&
+    firstName.trim() &&
+    lastName.trim() &&
+    city.trim() &&
+    branch.trim() &&
+    phoneOk
+
   const checkout = async () => {
-    const valid =
-      firstName.trim() &&
-      lastName.trim() &&
-      city.trim() &&
-      branch.trim() &&
-      /^\+?\d[\d\s-]{8,}$/.test(phone.trim())
-    if (!valid) {
+    if (!canSubmit) {
       setSent('err')
       return
     }
@@ -36,19 +40,22 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
     try {
       setSending(true)
 
-      // ⬇️ fbq: InitiateCheckout — фиксируем начало оформления
-      fbqTrack('InitiateCheckout', {
-        num_items: items.reduce((n, it) => n + it.qty, 0),
-        value: subtotal,
-        currency: 'UAH',
-        contents: items.map(it => ({
-          id: it.id,
-          quantity: it.qty,
-          item_price: lineTotalFor(it) / Math.max(1, it.qty)
-        })),
-        content_type: 'product'
-      })
+      // 1) fbq: InitiateCheckout — безопасно, не ломает поток даже при блокировщиках
+      try {
+        fbqTrack('InitiateCheckout', {
+          num_items: items.reduce((n, it) => n + it.qty, 0),
+          value: subtotal,
+          currency: 'UAH',
+          contents: items.map(it => ({
+            id: it.id,
+            quantity: it.qty,
+            item_price: lineTotalFor(it) / Math.max(1, it.qty)
+          })),
+          content_type: 'product'
+        })
+      } catch {}
 
+      // 2) Подготовка полезной нагрузки
       const payloadItems = items.map(it => ({
         id: it.id,
         title: it.title,
@@ -59,6 +66,7 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
         type: it.type
       }))
 
+      // 3) Вызов API
       const res = await fetch('/api/order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -77,20 +85,27 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
         })
       })
 
-      if (!res.ok) throw new Error('bad')
+      if (!res.ok) {
+        // опционально можно прочитать тело для лога
+        // const data = await res.json().catch(() => null)
+        throw new Error('Bad response')
+      }
 
-      // ⬇️ fbq: Purchase — отправляем после успешного ответа API
-      fbqTrack('Purchase', {
-        value: subtotal,
-        currency: 'UAH',
-        contents: items.map(it => ({
-          id: it.id,
-          quantity: it.qty,
-          item_price: lineTotalFor(it) / Math.max(1, it.qty)
-        })),
-        content_type: 'product'
-      })
+      // 4) fbq: Purchase — только после успешного ответа
+      try {
+        fbqTrack('Purchase', {
+          value: subtotal,
+          currency: 'UAH',
+          contents: items.map(it => ({
+            id: it.id,
+            quantity: it.qty,
+            item_price: lineTotalFor(it) / Math.max(1, it.qty)
+          })),
+          content_type: 'product'
+        })
+      } catch {}
 
+      // 5) Очистка и успех
       onSuccess?.()
       clear()
       setFirst('')
@@ -104,7 +119,8 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
       setSent('err')
     } finally {
       setSending(false)
-      if (sent !== 'ok') setTimeout(() => setSent(null), 1800)
+      // мягкий сброс сообщения об ошибке через ~1.8с (без зависимости от стейта в замыкании)
+      setTimeout(() => setSent(null), 1800)
     }
   }
 
@@ -161,6 +177,9 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
             fullWidth
             size="small"
             required
+            error={!!phone && !phoneOk}
+            helperText={!!phone && !phoneOk ? 'Перевірте формат телефону' : ' '}
+            FormHelperTextProps={{ sx: { m: 0 } }}
             InputLabelProps={{ shrink: true }}
             inputProps={{
               autoComplete: 'tel',
@@ -221,7 +240,7 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
           <Button
             variant="contained"
             onClick={checkout}
-            disabled={items.length === 0 || sending}
+            disabled={!canSubmit}
             sx={{
               order: { xs: 1, sm: 2 },
               fontWeight: 900,
@@ -233,8 +252,9 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
               }
             }}
             fullWidth
+            aria-busy={sending ? 'true' : undefined}
           >
-            Оформити
+            {sending ? 'Надсилання…' : 'Оформити'}
           </Button>
         </Stack>
 
