@@ -9,7 +9,7 @@ export const promos: PromoSlide[] = [
     subtitle:
       'Соковиті ікринки з чистим післясмаком. Ідеально для тостів, тарталеток і домашніх сетів.',
     bullets: ['Свіжа партія', 'Чистий смак', 'Охолоджена доставка'],
-    imageSrc: '/promo/gorbush.jpg',
+    imageSrc: '/promo/gorbush.png',
     imageAlt: 'Ікра горбуші',
     price: 279,
     priceNote: 'Вигідний старт',
@@ -20,7 +20,7 @@ export const promos: PromoSlide[] = [
       id: '12',
       title: 'Ікра горбуші — промо баночка',
       price: 279,
-      image: '/promo/gorbush.jpg',
+      image: '/promo/gorbush.png',
       note: 'Промо: перша баночка',
       openCart: true
     },
