@@ -55,16 +55,31 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           strategy="afterInteractive"
           dangerouslySetInnerHTML={{
             __html: `
-              !function(f,b,e,v,n,t,s){
-                if(f.fbq)return;n=f.fbq=function(){n.callMethod?
-                n.callMethod.apply(n,arguments):n.queue.push(arguments)};
-                if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
-                n.queue=[];t=b.createElement(e);t.async=!0;
-                t.src=v;s=b.getElementsByTagName(e)[0];
-                s.parentNode.insertBefore(t,s)
-              }(window, document,'script','https://connect.facebook.net/en_US/fbevents.js');
-              fbq('init', '${FB_PIXEL_ID}');
-              fbq('track', 'PageView');
+              (function(){
+                // Если уже инициализировано — выходим (гард от дублей)
+                if (window.__fbPixelInited) return;
+
+                !function(f,b,e,v,n,t,s){
+                  if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+                  n.callMethod.apply(n,arguments):n.queue.push(arguments)};
+                  if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
+                  n.queue=[];t=b.createElement(e);t.async=!0;
+                  t.src=v;s=b.getElementsByTagName(e)[0];
+                  s.parentNode.insertBefore(t,s)
+                }(window, document,'script','https://connect.facebook.net/en_US/fbevents.js');
+
+                // ⛔ Отрубаем авто-конфигурацию и авто-события
+                fbq('set', 'autoConfig', 'false', '${FB_PIXEL_ID}');
+                fbq('set', 'eventAutoConfig', 'false', '${FB_PIXEL_ID}');
+                // дублируем в init-опциях (на всякий случай)
+                fbq('init', '${FB_PIXEL_ID}', {}, { autoConfig: false, eventAutoConfig: false });
+
+                // Ровно один ручной PageView при первой загрузке
+                fbq('track', 'PageView');
+
+                // помечаем, что уже инициализировали
+                window.__fbPixelInited = true;
+              })();
             `
           }}
         />
