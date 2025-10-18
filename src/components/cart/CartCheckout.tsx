@@ -1,16 +1,34 @@
 // src/components/cart/CartCheckout.tsx
 'use client'
 
-import { fbqTrack } from '@/lib/fb' // безопасный fbq
+import { fbqTrack } from '@/lib/fb'
 import { useCart } from '@/store/cart'
 import { lineTotalFor } from '@/utils/cartPricing'
 import { Box, Button, Stack, TextField, Typography } from '@mui/material'
 import Link from 'next/link'
 import { useMemo, useState } from 'react'
 
+/** Стабильный генератор event_id для дедупликации браузер/сервер */
+const genEventId = () =>
+  typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID()
+    : `${Date.now()}_${Math.random().toString(36).slice(2)}`
+
 export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) {
   const { items, clear } = useCart()
+
   const subtotal = useMemo(() => items.reduce((s, it) => s + lineTotalFor(it), 0), [items])
+
+  // Подготовка contents для пикселя (и потенциального CAPI)
+  const pixelContents = useMemo(
+    () =>
+      items.map(it => {
+        const qty = Math.max(1, it.qty)
+        const unit = lineTotalFor(it) / qty
+        return { id: it.id, quantity: qty, item_price: unit }
+      }),
+    [items]
+  )
 
   const [firstName, setFirst] = useState('')
   const [lastName, setLast] = useState('')
@@ -18,6 +36,7 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
   const [city, setCity] = useState('')
   const [branch, setBranch] = useState('')
   const [note, setNote] = useState('')
+
   const [sending, setSending] = useState(false)
   const [sent, setSent] = useState<null | 'ok' | 'err'>(null)
 
@@ -40,22 +59,22 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
     try {
       setSending(true)
 
-      // 1) fbq: InitiateCheckout — безопасно, не ломает поток даже при блокировщиках
+      // Единый event_id для InitiateCheckout и Purchase
+      const eventId = genEventId()
+
+      // 1) InitiateCheckout — надёжная точка (перед вызовом API)
       try {
         fbqTrack('InitiateCheckout', {
+          event_id: eventId,
           num_items: items.reduce((n, it) => n + it.qty, 0),
           value: subtotal,
           currency: 'UAH',
-          contents: items.map(it => ({
-            id: it.id,
-            quantity: it.qty,
-            item_price: lineTotalFor(it) / Math.max(1, it.qty)
-          })),
+          contents: pixelContents,
           content_type: 'product'
         })
       } catch {}
 
-      // 2) Подготовка полезной нагрузки
+      // 2) Полезная нагрузка в API
       const payloadItems = items.map(it => ({
         id: it.id,
         title: it.title,
@@ -66,7 +85,7 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
         type: it.type
       }))
 
-      // 3) Вызов API
+      // 3) Вызов API (прокидываем eventId — пригодится для CAPI)
       const res = await fetch('/api/order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -81,31 +100,25 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
           note: note.trim() || undefined,
           items: payloadItems,
           subtotal,
-          source: typeof window !== 'undefined' ? window.location.href : undefined
+          source: typeof window !== 'undefined' ? window.location.href : undefined,
+          eventId
         })
       })
 
-      if (!res.ok) {
-        // опционально можно прочитать тело для лога
-        // const data = await res.json().catch(() => null)
-        throw new Error('Bad response')
-      }
+      if (!res.ok) throw new Error('Bad response')
 
-      // 4) fbq: Purchase — только после успешного ответа
+      // 4) Purchase — только после успешного ответа
       try {
         fbqTrack('Purchase', {
+          event_id: eventId,
           value: subtotal,
           currency: 'UAH',
-          contents: items.map(it => ({
-            id: it.id,
-            quantity: it.qty,
-            item_price: lineTotalFor(it) / Math.max(1, it.qty)
-          })),
+          contents: pixelContents,
           content_type: 'product'
         })
       } catch {}
 
-      // 5) Очистка и успех
+      // 5) Очистка формы/корзины и успех
       onSuccess?.()
       clear()
       setFirst('')
@@ -119,7 +132,6 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
       setSent('err')
     } finally {
       setSending(false)
-      // мягкий сброс сообщения об ошибке через ~1.8с (без зависимости от стейта в замыкании)
       setTimeout(() => setSent(null), 1800)
     }
   }

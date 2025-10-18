@@ -1,46 +1,48 @@
 // src/components/products/ProductCard.tsx
 'use client'
 
+import SafeCurrency from '@/components/common/SafeCurrency'
 import { emitCartAdded } from '@/lib/cartEvents'
-import { fbqTrack } from '@/lib/fb' // ⬅️ fbq утилита
+import { fbqTrack } from '@/lib/fb'
 import { useCart } from '@/store/cart'
 import type { Product } from '@/types/product'
-import { Box, Card, CardContent, Chip, Divider, Stack, Typography } from '@mui/material'
-import { alpha } from '@mui/material/styles'
-import { useEffect, useMemo, useState } from 'react'
 import AddToCartButton from './AddToCartButton'
 import SpecLine from './SpecLine'
 
-/* ---------- безопасное форматирование валюты ---------- */
-function SafeCurrency({ value }: { value: number }) {
-  const [txt, setTxt] = useState<string>('')
-  useEffect(() => {
-    try {
-      setTxt(
-        new Intl.NumberFormat('uk-UA', {
-          style: 'currency',
-          currency: 'UAH',
-          maximumFractionDigits: 0
-        }).format(value)
-      )
-    } catch {
-      setTxt(`${Math.round(value)} ₴`)
-    }
-  }, [value])
-  return <span suppressHydrationWarning>{txt || `${Math.round(value)} ₴`}</span>
-}
+import { Box, Card, CardContent, Chip, Divider, Stack, Tooltip, Typography } from '@mui/material'
+import { alpha } from '@mui/material/styles'
+import Image from 'next/image'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
-/* ---------- утилиты ---------- */
+/* ---------- helpers ---------- */
 function discountPct(price?: number, oldPrice?: number) {
   if (!price || !oldPrice || oldPrice <= price) return null
   const pct = Math.round((1 - price / oldPrice) * 100)
   return pct > 0 ? `-${pct}%` : null
 }
 
-/* ---------- компонент ---------- */
+function badgeLabel(b?: Product['badge']) {
+  switch (b) {
+    case 'hit':
+      return 'Хіт'
+    case 'sale':
+      return 'Знижка'
+    case 'new':
+      return 'Новинка'
+    default:
+      return null
+  }
+}
+
+/* ---------- component ---------- */
 export default function ProductCard({ product }: { product: Product }) {
-  const add = useCart(s => s.addItem)
+  const addItem = useCart(s => s.addItem)
+
   const [variant, setVariant] = useState<string | undefined>(product.weightOptions?.[0])
+  const [imgSrc, setImgSrc] = useState<string>(product.image || '/placeholder.jpg')
+  const [adding, setAdding] = useState(false)
+  const addLockRef = useRef(false)
+
   const pct = discountPct(product.price, product.oldPrice)
 
   const badgeColor = useMemo(() => {
@@ -56,52 +58,97 @@ export default function ProductCard({ product }: { product: Product }) {
     }
   }, [product.badge])
 
-  /* ---------- fbq: ViewContent при маунте карточки ---------- */
+  /* ---------- fbq: ViewContent при первом появлении карточки в вьюпорте ---------- */
+  const rootRef = useRef<HTMLDivElement | null>(null)
+  const viewedRef = useRef(false)
+
   useEffect(() => {
-    fbqTrack('ViewContent', {
-      content_ids: [product.id],
-      content_type: 'product',
-      content_name: product.title,
-      value: product.price,
-      currency: 'UAH'
-    })
+    if (viewedRef.current) return
+    if (!rootRef.current || typeof window === 'undefined') return
+
+    if (!('IntersectionObserver' in window)) {
+      // fallback — отправим один раз на маунте
+      viewedRef.current = true
+      fbqTrack('ViewContent', {
+        content_ids: [product.id],
+        content_type: 'product',
+        content_name: product.title,
+        value: product.price,
+        currency: 'UAH'
+      })
+      return
+    }
+
+    const obs = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry?.isIntersecting || viewedRef.current) return
+        viewedRef.current = true
+        obs.disconnect()
+        fbqTrack('ViewContent', {
+          content_ids: [product.id],
+          content_type: 'product',
+          content_name: product.title,
+          value: product.price,
+          currency: 'UAH'
+        })
+      },
+      { threshold: 0.2 }
+    )
+
+    obs.observe(rootRef.current)
+    return () => obs.disconnect()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []) // один раз на карточку
+  }, [product.id])
 
+  /* ---------- add to cart ---------- */
   const handleAdd = () => {
-    // 1) добавляем в корзину
-    add({
-      id: product.id,
-      title: product.title,
-      price: product.price,
-      image: product.image,
-      variant,
-      qty: 1
-    })
+    if (addLockRef.current || product.inStock === false) return
+    addLockRef.current = true
+    setAdding(true)
 
-    // 2) эмитим событие для глобального алерта
-    emitCartAdded({
-      id: product.id,
-      title: product.title,
-      image: product.image,
-      variant,
-      qty: 1,
-      price: product.price
-    })
+    try {
+      // 1) добавляем в стор
+      addItem({
+        id: product.id,
+        title: product.title,
+        price: product.price,
+        image: product.image,
+        variant,
+        qty: 1
+      })
 
-    // 3) fbq: AddToCart
-    fbqTrack('AddToCart', {
-      content_ids: [product.id],
-      content_type: 'product',
-      content_name: product.title,
-      value: product.price,
-      currency: 'UAH',
-      num_items: 1
-    })
+      // 2) эмитим глобальный алерт
+      emitCartAdded({
+        id: product.id,
+        title: product.title,
+        image: product.image,
+        variant,
+        qty: 1,
+        price: product.price
+      })
+
+      // 3) fbq: AddToCart
+      fbqTrack('AddToCart', {
+        content_ids: [product.id],
+        content_type: 'product',
+        content_name: product.title,
+        value: product.price,
+        currency: 'UAH',
+        num_items: 1,
+        contents: [{ id: product.id, quantity: 1, item_price: product.price }]
+      })
+    } finally {
+      // небольшой троттлинг клика, чтобы избежать двойного добавления
+      setTimeout(() => {
+        addLockRef.current = false
+        setAdding(false)
+      }, 180)
+    }
   }
 
   return (
     <Card
+      ref={rootRef}
       elevation={0}
       sx={{
         height: '100%',
@@ -128,27 +175,17 @@ export default function ProductCard({ product }: { product: Product }) {
           borderTopRightRadius: 12
         }}
       >
-        <Box
-          component="img"
-          src={product.image || '/placeholder.jpg'}
-          alt={product.title}
-          loading="lazy"
-          onError={(e: React.SyntheticEvent<HTMLImageElement>) => {
-            const img = e.currentTarget
-            if (!img.src.includes('placeholder.jpg')) img.src = '/placeholder.jpg'
-          }}
-          sx={{
-            display: 'block',
-            width: '100%',
-            aspectRatio: '1 / 1',
-            objectFit: 'cover',
-            transition: 'transform .35s ease',
-            backgroundColor: '#f5f5f5',
-            '@media (hover:hover)': {
-              '&:hover': { transform: 'scale(1.03)' }
-            }
-          }}
-        />
+        <Box sx={{ position: 'relative', width: '100%', aspectRatio: '1 / 1', bgColor: '#f5f5f5' }}>
+          <Image
+            src={imgSrc}
+            alt={product.title}
+            fill
+            sizes="(max-width: 600px) 100vw, 33vw"
+            priority={false}
+            style={{ objectFit: 'cover' }}
+            onError={() => setImgSrc('/placeholder.jpg')}
+          />
+        </Box>
 
         {(product.badge || pct) && (
           <Stack
@@ -164,9 +201,7 @@ export default function ProductCard({ product }: { product: Product }) {
             {product.badge && (
               <Chip
                 size="small"
-                label={
-                  product.badge === 'hit' ? 'Хіт' : product.badge === 'sale' ? 'Знижка' : 'Новинка'
-                }
+                label={badgeLabel(product.badge)}
                 color={badgeColor as any}
                 sx={{
                   borderRadius: 999,
@@ -205,7 +240,7 @@ export default function ProductCard({ product }: { product: Product }) {
           flexGrow: 1
         }}
       >
-        {/* Название (просто текст, без ссылки) */}
+        {/* Назва */}
         <Typography
           variant="subtitle1"
           sx={{
@@ -213,7 +248,6 @@ export default function ProductCard({ product }: { product: Product }) {
             WebkitLineClamp: 2,
             WebkitBoxOrient: 'vertical',
             overflow: 'hidden',
-            textDecoration: 'none',
             color: 'inherit',
             fontWeight: 800,
             lineHeight: 1.25,
@@ -221,11 +255,12 @@ export default function ProductCard({ product }: { product: Product }) {
             fontSize: { xs: 14.5, sm: 15.5 },
             cursor: 'default'
           }}
+          title={product.title}
         >
           {product.title}
         </Typography>
 
-        {/* Цена */}
+        {/* Ціна */}
         <Stack direction="row" alignItems="baseline" spacing={1} sx={{ mb: 1 }}>
           <Typography variant="h6" sx={{ fontWeight: 900, fontSize: { xs: 18, sm: 20 } }}>
             <SafeCurrency value={product.price} />
@@ -234,17 +269,14 @@ export default function ProductCard({ product }: { product: Product }) {
             <Typography
               variant="body2"
               color="text.disabled"
-              sx={{
-                textDecoration: 'line-through',
-                fontSize: { xs: 12.5, sm: 13.5 }
-              }}
+              sx={{ textDecoration: 'line-through', fontSize: { xs: 12.5, sm: 13.5 } }}
             >
               <SafeCurrency value={product.oldPrice} />
             </Typography>
           )}
         </Stack>
 
-        {/* Варианты веса */}
+        {/* Варіанти ваги */}
         {product.weightOptions?.length ? (
           <Stack direction="row" spacing={0.75} sx={{ mb: 1, flexWrap: 'wrap' }}>
             {product.weightOptions.map(w => (
@@ -265,7 +297,7 @@ export default function ProductCard({ product }: { product: Product }) {
           </Stack>
         ) : null}
 
-        {/* Спеки */}
+        {/* Характеристики */}
         {product.description && (
           <Stack spacing={0.5} sx={{ mb: 1.25 }}>
             <SpecLine
@@ -295,7 +327,17 @@ export default function ProductCard({ product }: { product: Product }) {
 
         {/* CTA */}
         <Box sx={{ mt: 'auto' }}>
-          <AddToCartButton disabled={product.inStock === false} onClick={handleAdd} />
+          {product.inStock === false ? (
+            <Tooltip title="Тимчасово немає в наявності">
+              <span>
+                <AddToCartButton disabled onClick={handleAdd} />
+              </span>
+            </Tooltip>
+          ) : (
+            <AddToCartButton disabled={adding} onClick={handleAdd}>
+              {adding ? 'Додаємо…' : 'В кошик'}
+            </AddToCartButton>
+          )}
         </Box>
       </CardContent>
     </Card>

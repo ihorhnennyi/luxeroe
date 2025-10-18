@@ -1,57 +1,73 @@
 // src/components/cart/AddToCartAlertHost.tsx
 'use client'
 
-import { fbqTrack } from '@/lib/fb' // безопасный fbq
+import { fbqTrack } from '@/lib/fb'
 import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import AddToCartAlert, { type AlertItem } from './AddToCartAlert'
 
+const EVENT_NAME = 'cart:item_added'
+
 export default function AddToCartAlertHost() {
   const [open, setOpen] = useState(false)
   const [item, setItem] = useState<AlertItem | null>(null)
-  const router = useRouter()
-  const pushingRef = useRef(false) // защита от повторного пуша
 
-  const onEvent = useCallback((e: Event) => {
-    const ce = e as CustomEvent<AlertItem>
-    if (!ce.detail) return
-    setItem(ce.detail)
+  const itemRef = useRef<AlertItem | null>(null) // всегда актуальный айтем
+  const pushingRef = useRef(false) // защита от повторных переходов
+  const mountedRef = useRef(false) // не трекаем до маунта
+  const router = useRouter()
+
+  // единый обработчик CustomEvent
+  const onItemAdded = useCallback((e: Event) => {
+    const ce = e as CustomEvent<AlertItem | undefined>
+    const detail = ce?.detail
+    if (!detail) return
+    itemRef.current = detail
+    setItem(detail)
     setOpen(true)
   }, [])
 
+  // подписка/отписка на глобальное событие
   useEffect(() => {
+    mountedRef.current = true
     if (typeof window === 'undefined') return
-    window.addEventListener('cart:item_added', onEvent as EventListener)
-    return () => window.removeEventListener('cart:item_added', onEvent as EventListener)
-  }, [onEvent])
 
+    window.addEventListener(EVENT_NAME, onItemAdded as EventListener, { passive: true })
+
+    return () => {
+      mountedRef.current = false
+
+      window.removeEventListener(EVENT_NAME, onItemAdded as EventListener)
+    }
+  }, [onItemAdded])
+
+  // переход в корзину + fbq InitiateCheckout
   const handleCheckout = useCallback(() => {
     if (pushingRef.current) return
     pushingRef.current = true
-
     setOpen(false)
 
-    // fbq: InitiateCheckout — но без риска сломать UX
-    const qty = Math.max(1, item?.qty ?? 1)
-    const unit = item?.promoFirstPrice ?? item?.price ?? 0
+    const it = itemRef.current
+    const qty = Math.max(1, it?.qty ?? 1)
+    const unit = it?.promoFirstPrice ?? it?.price ?? 0
 
     try {
+      // безопасная отправка: fbqTrack сам проглотит ошибки/отсутствие fbq
       fbqTrack('InitiateCheckout', {
         num_items: qty,
         value: unit * qty,
         currency: 'UAH',
-        contents: item ? [{ id: item.id, quantity: qty, item_price: unit }] : undefined,
-        content_type: 'product'
+        contents: it ? [{ id: it.id, quantity: qty, item_price: unit }] : undefined,
+        content_type: it ? 'product' : undefined
       })
     } finally {
-      // Даем диалогу закрыться и *в любом случае* идем на корзину
+      // даём модалке закрыться и делаем навигацию
       setTimeout(() => {
         router.push('/cart')
-        // отпускаем флаг после навигации
         pushingRef.current = false
       }, 0)
     }
-  }, [item, router])
+  }, [router])
 
   return (
     <AddToCartAlert
