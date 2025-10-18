@@ -1,14 +1,16 @@
 // src/app/layout.tsx
-import FbPageView from '@/components/analytics/FbPageView' // авто PageView при SPA-переходах
-import AddToCartAlertHost from '@/components/cart/AddToCartAlertHost'
+import './globals.css'
+
+import type { Metadata } from 'next'
+import Script from 'next/script'
+import { Suspense } from 'react'
+
 import Footer from '@/components/Footer'
 import Header from '@/components/Header'
 import LeavesClient from '@/components/LeavesClient'
 import ThemeRegistry from '@/components/ThemeRegistry'
-import type { Metadata } from 'next'
-import Script from 'next/script'
-import { Suspense } from 'react'
-import './globals.css'
+import FbPageView from '@/components/analytics/FbPageView'
+import AddToCartAlertHost from '@/components/cart/AddToCartAlertHost'
 
 export const metadata: Metadata = {
   title: 'LuxeRoe — преміальні морепродукти та ікра',
@@ -35,7 +37,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <head>
         <link rel="icon" href="/favicon.ico" />
 
-        {/* ---------- Google Analytics ---------- */}
+        {/* Google Analytics */}
         <Script
           src={`https://www.googletagmanager.com/gtag/js?id=${GA_ID}`}
           strategy="afterInteractive"
@@ -49,37 +51,23 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           `}
         </Script>
 
-        {/* ---------- Meta Pixel (Facebook Pixel) ---------- */}
+        {/* Meta Pixel (без авто-событий) */}
         <Script
           id="fb-pixel"
           strategy="afterInteractive"
           dangerouslySetInnerHTML={{
             __html: `
-              (function(){
-                // Если уже инициализировано — выходим (гард от дублей)
-                if (window.__fbPixelInited) return;
+              !(function(f,b,e,v,n,t,s){
+                if (f.fbq) return;
+                n=f.fbq=function(){ n.callMethod ? n.callMethod.apply(n,arguments) : n.queue.push(arguments) };
+                if(!f._fbq) f._fbq=n;
+                n.push=n; n.loaded=!0; n.version='2.0';
+                n.queue=[]; t=b.createElement(e); t.async=!0;
+                t.src=v; s=b.getElementsByTagName(e)[0]; s.parentNode.insertBefore(t,s);
+              })(window, document, 'script', 'https://connect.facebook.net/en_US/fbevents.js');
 
-                !function(f,b,e,v,n,t,s){
-                  if(f.fbq)return;n=f.fbq=function(){n.callMethod?
-                  n.callMethod.apply(n,arguments):n.queue.push(arguments)};
-                  if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
-                  n.queue=[];t=b.createElement(e);t.async=!0;
-                  t.src=v;s=b.getElementsByTagName(e)[0];
-                  s.parentNode.insertBefore(t,s)
-                }(window, document,'script','https://connect.facebook.net/en_US/fbevents.js');
-
-                // ⛔ Отрубаем авто-конфигурацию и авто-события
-                fbq('set', 'autoConfig', 'false', '${FB_PIXEL_ID}');
-                fbq('set', 'eventAutoConfig', 'false', '${FB_PIXEL_ID}');
-                // дублируем в init-опциях (на всякий случай)
-                fbq('init', '${FB_PIXEL_ID}', {}, { autoConfig: false, eventAutoConfig: false });
-
-                // Ровно один ручной PageView при первой загрузке
-                fbq('track', 'PageView');
-
-                // помечаем, что уже инициализировали
-                window.__fbPixelInited = true;
-              })();
+              fbq('init', '${FB_PIXEL_ID}', {}, { autoConfig: false, eventAutoConfig: false });
+              fbq('track', 'PageView');
             `
           }}
         />
@@ -91,7 +79,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
 
       <body>
-        {/* Noscript Meta Pixel */}
+        {/* Noscript Meta Pixel fallback */}
         <noscript>
           <img
             height="1"
@@ -107,12 +95,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <Header />
             <LeavesClient autumn={autumn} />
 
-            {/* авто PageView на клиентской навигации */}
+            {/* SPA PageView */}
             <Suspense fallback={null}>
               <FbPageView />
             </Suspense>
 
-            {/* глобальный алерт добавления в корзину */}
             <AddToCartAlertHost />
 
             <main>{children}</main>
