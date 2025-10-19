@@ -22,7 +22,25 @@ export default function PromoProduct({
   data: PromoProductData
   onOrder?: () => void
 }) {
-  const { title, image, banner, attrs, netWeight, price, oldPrice, cta } = data
+  const { id, title, image, banner, attrs, netWeight, price, oldPrice, cta } =
+    data as PromoProductData & {
+      id?: string
+    }
+
+  const handleOrder = () => {
+    // 📈 FB Pixel: AddToCart
+    if (typeof window !== 'undefined' && typeof window.fbq === 'function') {
+      window.fbq('track', 'AddToCart', {
+        content_name: title,
+        content_ids: id ? [id] : undefined,
+        content_type: 'product',
+        value: typeof price === 'number' ? price : undefined,
+        currency: 'UAH'
+      })
+    }
+
+    onOrder?.()
+  }
 
   return (
     <Paper
@@ -135,7 +153,7 @@ export default function PromoProduct({
           <Button
             fullWidth
             size="large"
-            onClick={onOrder}
+            onClick={handleOrder}
             startIcon={<ShoppingCartIcon sx={{ fontSize: { xs: 18, sm: 20 } }} />}
             sx={{
               mt: 1,

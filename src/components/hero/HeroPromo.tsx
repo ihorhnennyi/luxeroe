@@ -1,3 +1,4 @@
+// src/components/hero/HeroPromo.tsx
 'use client'
 
 import AnimatedCta from '@/components/hero/AnimatedCta'
@@ -11,6 +12,7 @@ import Image from 'next/image'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import PriceBadge from './PriceBadge'
 
+/* ---------- helpers ---------- */
 function LeafDot({ top, left, size = 10 }: { top: number; left: number | string; size?: number }) {
   return (
     <Box
@@ -31,11 +33,23 @@ function LeafDot({ top, left, size = 10 }: { top: number; left: number | string;
   )
 }
 
-type Props = PromoSlide & { onAction?: () => void; imagePriority?: boolean }
+function fbqTrack<T extends Record<string, unknown>>(event: string, params?: T) {
+  if (typeof window !== 'undefined' && typeof (window as any).fbq === 'function') {
+    ;(window as any).fbq('track', event, params)
+  }
+}
 
+/* ---------- promo-specific constants ---------- */
 const GORBUSH_ID = '1'
 const GORBUSH_PRICE = 500
 const GORBUSH_PROMO_FIRST = 279
+
+type Props = PromoSlide & {
+  onAction?: () => void
+  imagePriority?: boolean
+}
+
+/* ============================================= */
 
 export default function HeroPromo({
   eyebrow,
@@ -62,8 +76,20 @@ export default function HeroPromo({
   const addItem = useCart(s => s.addItem)
   const openCart = useCart(s => s.open)
 
+  /* Mount */
   useEffect(() => setMounted(true), [])
 
+  /* ViewContent (1 раз на маунт блока) */
+  useEffect(() => {
+    if (!title) return
+    fbqTrack('ViewContent', {
+      content_name: title,
+      content_category: 'hero_promo',
+      currency: 'UAH'
+    })
+  }, [title])
+
+  /* CTA click handler */
   const handleCta = useCallback(
     (e: React.MouseEvent) => {
       if (action) e.preventDefault()
@@ -76,11 +102,13 @@ export default function HeroPromo({
         guardRef.current = false
       }
 
-      if (onAction) {
+      // Пользовательский обработчик без action
+      if (onAction && !action) {
         onAction()
         done()
         return
       }
+      // Обычная ссылка без action — пусть идёт переход
       if (!action) {
         done()
         return
@@ -88,6 +116,32 @@ export default function HeroPromo({
 
       try {
         if (action.kind === 'add') {
+          // ------- FB Pixel: AddToCart для нескольких позиций -------
+          const contents =
+            action.items
+              ?.map(({ id, qty = 1 }) => {
+                const p = products.find(x => x.id === id)
+                if (!p) return null
+
+                const isGorbush = p.id === GORBUSH_ID
+                const unit = isGorbush ? GORBUSH_PRICE : p.price ?? 0
+
+                return { id: p.id, quantity: qty, item_price: unit }
+              })
+              .filter(Boolean) ?? []
+
+          const value = contents.reduce((s, x) => s + (x!.item_price || 0) * (x!.quantity || 1), 0)
+          if (contents.length) {
+            fbqTrack('AddToCart', {
+              contents,
+              content_type: 'product',
+              value,
+              currency: 'UAH'
+            })
+          }
+          // -----------------------------------------------------------
+
+          // Фактическое добавление в корзину
           action.items?.forEach(({ id, qty = 1 }) => {
             const p = products.find(x => x.id === id)
             if (!p) return
@@ -145,6 +199,15 @@ export default function HeroPromo({
             return
           }
 
+          // ------- FB Pixel: AddToCart (bundle) -------
+          fbqTrack('AddToCart', {
+            contents: [{ id: action.id, quantity: 1, item_price: action.price }],
+            content_type: 'product_group',
+            value: action.price,
+            currency: 'UAH'
+          })
+          // --------------------------------------------
+
           addItem({
             id: action.id,
             title: action.title,
@@ -173,7 +236,7 @@ export default function HeroPromo({
     [action, onAction, addItem, openCart, busy, imageSrc]
   )
 
-  // Таймер — только на клиенте
+  /* Дедлайн таймера — только на клиенте */
   useEffect(() => {
     if (!mounted || !countdownTo) return
     const t = new Date(countdownTo).getTime()
@@ -193,6 +256,7 @@ export default function HeroPromo({
     return `${d}д ${h}г ${m}хв ${ss}с`
   }, [leftMs])
 
+  /* ---------- UI ---------- */
   return (
     <Box
       sx={{
@@ -361,7 +425,7 @@ export default function HeroPromo({
             )}
           </Box>
 
-          {/* Правый столбец */}
+          {/* Правый столбец (картинка/бейдж) */}
           <Box sx={{ flex: 1, position: 'relative', width: '100%' }}>
             <Box
               sx={{

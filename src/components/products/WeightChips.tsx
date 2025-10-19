@@ -7,7 +7,7 @@ export default function WeightChips({
   value,
   onChange
 }: {
-  options?: ReadonlyArray<string> // ← было string[]
+  options?: ReadonlyArray<string>
   value?: string
   onChange?: (v: string) => void
 }) {
