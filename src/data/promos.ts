@@ -13,7 +13,7 @@ export const promos: PromoSlide[] = [
     imageAlt: 'Ікра горбуші',
     price: 279,
     priceNote: 'Вигідний старт',
-    priceStyle: 'autumn',
+
     ctaText: 'Замовити промо-баночку',
     action: {
       kind: 'bundle',
@@ -39,7 +39,7 @@ export const promos: PromoSlide[] = [
     ctaText: 'Замовити сет 2+1',
     price: 1098,
     priceNote: 'За 3 банки',
-    priceStyle: 'autumn',
+
     action: {
       kind: 'bundle',
       id: '13',
@@ -62,7 +62,7 @@ export const promos: PromoSlide[] = [
     imageAlt: 'Набір із 5 банок',
     price: 1500,
     priceNote: 'За 5 банок',
-    priceStyle: 'autumnRibbon',
+
     ctaText: 'Замовити набір 5',
     action: {
       kind: 'bundle',
