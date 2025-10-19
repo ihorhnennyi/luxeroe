@@ -1,41 +1,31 @@
-// src/types/promo.ts
-export type PriceStyle =
-  | "ticket"
-  | "chip"
-  | "corner"
-  | "autumn"
-  | "autumnRibbon";
+export type AddAction = {
+  readonly kind: 'add'
+  readonly items: ReadonlyArray<{ id: string; qty?: number }>
+  readonly openCart?: boolean
+}
 
-export interface PromoSlide {
-  eyebrow?: string;
-  title: string;
-  subtitle?: string;
-  bullets?: string[];
-  imageSrc: string;
-  imageAlt?: string;
-  ctaText?: string;
-  ctaHref?: string;
-  price?: number;
-  priceNote?: string;
-  priceStyle?: PriceStyle;
-  countdownTo?: string;
-  tags?: string[];
+export type BundleAction = {
+  readonly kind: 'bundle'
+  readonly id: string
+  readonly title: string
+  readonly price: number
+  readonly image?: string
+  readonly note?: string
+  readonly openCart?: boolean
+}
 
-  // действия CTA
-  action?:
-    | {
-        kind: "add"; // обычные товары (если понадобится)
-        items: Array<{ id: string; qty?: number }>;
-        openCart?: boolean;
-      }
-    | {
-        kind: "bundle"; // единый товар-сет
-        id: string; // id позиции в корзине
-        title: string; // заголовок позиции
-        price: number; // цена всего набора
-        image?: string; // картинка набора
-        note?: string; // подпись (опционально)
-        openCart?: boolean;
-        // items?: Array<{ id: string; qty: number }>; // ← Больше НЕ нужно (оставляем опц.)
-      };
+export type PromoSlide = {
+  readonly eyebrow?: string
+  readonly title: string
+  readonly subtitle?: string
+  readonly bullets?: ReadonlyArray<string>
+  readonly imageSrc: string
+  readonly imageAlt?: string
+  readonly ctaText?: string
+  readonly ctaHref?: string
+  readonly price?: number
+  readonly priceNote?: string
+  readonly countdownTo?: string | Date
+  readonly tags?: ReadonlyArray<string>
+  readonly action?: AddAction | BundleAction
 }

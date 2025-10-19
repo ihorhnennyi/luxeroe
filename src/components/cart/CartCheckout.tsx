@@ -1,14 +1,11 @@
-// src/components/cart/CartCheckout.tsx
 'use client'
 
-import { fbqTrack } from '@/lib/fb'
 import { useCart } from '@/store/cart'
 import { lineTotalFor } from '@/utils/cartPricing'
 import { Box, Button, Stack, TextField, Typography } from '@mui/material'
 import Link from 'next/link'
 import { useMemo, useState } from 'react'
 
-/** Стабильный генератор event_id для дедупликации браузер/сервер */
 const genEventId = () =>
   typeof crypto !== 'undefined' && 'randomUUID' in crypto
     ? crypto.randomUUID()
@@ -19,7 +16,6 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
 
   const subtotal = useMemo(() => items.reduce((s, it) => s + lineTotalFor(it), 0), [items])
 
-  // Подготовка contents для пикселя (и потенциального CAPI)
   const pixelContents = useMemo(
     () =>
       items.map(it => {
@@ -58,23 +54,8 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
 
     try {
       setSending(true)
-
-      // Единый event_id для InitiateCheckout и Purchase
       const eventId = genEventId()
 
-      // 1) InitiateCheckout — надёжная точка (перед вызовом API)
-      try {
-        fbqTrack('InitiateCheckout', {
-          event_id: eventId,
-          num_items: items.reduce((n, it) => n + it.qty, 0),
-          value: subtotal,
-          currency: 'UAH',
-          contents: pixelContents,
-          content_type: 'product'
-        })
-      } catch {}
-
-      // 2) Полезная нагрузка в API
       const payloadItems = items.map(it => ({
         id: it.id,
         title: it.title,
@@ -85,7 +66,6 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
         type: it.type
       }))
 
-      // 3) Вызов API (прокидываем eventId — пригодится для CAPI)
       const res = await fetch('/api/order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -107,18 +87,6 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
 
       if (!res.ok) throw new Error('Bad response')
 
-      // 4) Purchase — только после успешного ответа
-      try {
-        fbqTrack('Purchase', {
-          event_id: eventId,
-          value: subtotal,
-          currency: 'UAH',
-          contents: pixelContents,
-          content_type: 'product'
-        })
-      } catch {}
-
-      // 5) Очистка формы/корзины и успех
       onSuccess?.()
       clear()
       setFirst('')
@@ -137,15 +105,7 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
   }
 
   return (
-    <Box
-      sx={{
-        mt: 3,
-        border: 1,
-        borderColor: 'divider',
-        borderRadius: 3,
-        p: { xs: 2, md: 3 }
-      }}
-    >
+    <Box sx={{ mt: 3, border: 1, borderColor: 'divider', borderRadius: 3, p: { xs: 2, md: 3 } }}>
       <Stack direction="row" justifyContent="space-between" alignItems="baseline" sx={{ mb: 2 }}>
         <Typography color="text.secondary" sx={{ fontSize: { xs: 14, sm: 15 } }}>
           Разом
@@ -240,12 +200,9 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
           sx={{ pt: 0.5 }}
         >
           <Button
-            component={Link}
+            component={Link as any}
             href="/"
-            sx={{
-              order: { xs: 2, sm: 1 },
-              alignSelf: { xs: 'stretch', sm: 'auto' }
-            }}
+            sx={{ order: { xs: 2, sm: 1 }, alignSelf: { xs: 'stretch', sm: 'auto' } }}
           >
             Продовжити покупки
           </Button>

@@ -1,4 +1,3 @@
-// src/components/cart/AddToCartAlert.tsx
 'use client'
 
 import AnimatedCta from '@/components/hero/AnimatedCta'
@@ -7,6 +6,7 @@ import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 import { Box, Dialog, DialogContent, IconButton, Stack, Typography } from '@mui/material'
 import { alpha, useTheme } from '@mui/material/styles'
 import Image from 'next/image'
+import { formatUAH } from './utils'
 
 export type AlertItem = {
   id: string
@@ -16,18 +16,6 @@ export type AlertItem = {
   qty?: number
   price: number
   promoFirstPrice?: number
-}
-
-function formatUAH(n: number) {
-  try {
-    return new Intl.NumberFormat('uk-UA', {
-      style: 'currency',
-      currency: 'UAH',
-      maximumFractionDigits: 0
-    }).format(n)
-  } catch {
-    return `${Math.round(n)} ₴`
-  }
 }
 
 export default function AddToCartAlert({
@@ -45,6 +33,7 @@ export default function AddToCartAlert({
 }) {
   const theme = useTheme()
 
+  // Закрываем только по кнопке «Х», клик по подложке/ESC игнорируем
   const handleDialogClose = (_e: object, reason: 'backdropClick' | 'escapeKeyDown') => {
     if (reason === 'backdropClick' || reason === 'escapeKeyDown') return
     onClose()
@@ -54,6 +43,7 @@ export default function AddToCartAlert({
     <Dialog
       open={open}
       onClose={handleDialogClose}
+      aria-labelledby="cart-added-title"
       fullWidth
       maxWidth="xs"
       disableEscapeKeyDown
@@ -68,7 +58,7 @@ export default function AddToCartAlert({
       PaperProps={{
         elevation: 0,
         sx: {
-          borderRadius: 3, // ↓ меньше скругление
+          borderRadius: 3,
           overflow: 'hidden',
           border: `1px solid ${alpha(theme.palette.common.black, 0.08)}`,
           boxShadow: `0 24px 70px ${alpha(theme.palette.common.black, 0.26)}`,
@@ -83,10 +73,13 @@ export default function AddToCartAlert({
             sx={{ color: '#2DAF92', fontSize: 26, flexShrink: 0 }}
             aria-hidden
           />
-          <Typography variant="subtitle1" sx={{ fontWeight: 900, color: 'text.primary', flex: 1 }}>
+          <Typography
+            id="cart-added-title"
+            variant="subtitle1"
+            sx={{ fontWeight: 900, color: 'text.primary', flex: 1 }}
+          >
             Додано до кошика
           </Typography>
-
           <IconButton aria-label="Закрити" onClick={onClose} size="small">
             <CloseRoundedIcon fontSize="small" />
           </IconButton>
@@ -101,7 +94,7 @@ export default function AddToCartAlert({
             sx={{
               p: 1.25,
               mb: 2,
-              borderRadius: 2, // ↓ меньше скругление
+              borderRadius: 2,
               border: `1px solid ${theme.palette.divider}`,
               background: `linear-gradient(180deg, ${alpha('#F6FFF9', 0.7)} 0%, #FFFFFF 60%)`
             }}
@@ -183,7 +176,7 @@ export default function AddToCartAlert({
           </Stack>
         )}
 
-        {/* Кнопки: фулл-вид, одна под другой */}
+        {/* Кнопки: full width, колонкой */}
         <Stack direction="column" spacing={1}>
           <AnimatedCta
             forceButton
@@ -191,7 +184,7 @@ export default function AddToCartAlert({
             onClick={onContinue}
             sx={{
               width: '100%',
-              borderRadius: 2, // ↓ меньше скругление
+              borderRadius: 2,
               background: '#fff',
               color: '#0F5E5B',
               boxShadow: 'none',
@@ -214,7 +207,7 @@ export default function AddToCartAlert({
             onClick={onCheckout}
             sx={{
               width: '100%',
-              borderRadius: 2, // ↓ меньше скругление
+              borderRadius: 2,
               py: { xs: 1, sm: 1.1 },
               fontWeight: 900,
               '&::before': { display: 'none' }

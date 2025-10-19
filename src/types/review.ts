@@ -1,6 +1,5 @@
 export type ReviewItem = {
-  src: string;
-  alt?: string;
-  author?: string;
-  note?: string;
-};
+  readonly src: string
+  readonly author?: string
+  readonly note?: string
+}

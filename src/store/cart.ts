@@ -1,55 +1,61 @@
-"use client";
+'use client'
 
-import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { create } from 'zustand'
+import { createJSONStorage, persist } from 'zustand/middleware'
 
-export type BundleItem = { id: string; qty: number };
+export type BundleItem = { id: string; qty: number }
 
 export type CartItem = {
-  id: string;
-  title: string;
-  price: number;
-  image?: string | null;
-  variant?: string;
-  qty: number;
+  id: string
+  title: string
+  price: number
+  image?: string | null
+  variant?: string
+  qty: number
 
-  type?: "single" | "bundle";
+  type?: 'single' | 'bundle'
 
-  // (оставляем на будущее; сейчас промо считаем через promoLimitQty)
-  promoFirstPrice?: number;
-  priceAfterFirst?: number;
+  promoFirstPrice?: number
+  priceAfterFirst?: number
 
-  bundle?: { items: BundleItem[]; note?: string };
-
-  /** Блокировка ручного изменения количества (+/-). */
-  lockQty?: boolean;
-
-  /** Технический максимум для позиции. */
-  maxQty?: number;
-
-  /** Лимит по промо для этой позиции (напр., 1 — не больше 1 шт). */
-  promoLimitQty?: number;
-};
+  bundle?: { items: BundleItem[]; note?: string }
+  lockQty?: boolean
+  maxQty?: number
+  promoLimitQty?: number
+}
 
 type CartState = {
-  items: CartItem[];
-  isOpen: boolean;
+  items: CartItem[]
 
-  addItem: (item: Omit<CartItem, "qty"> & { qty?: number }) => void;
-  remove: (id: string, variant?: string) => void;
-  inc: (id: string, variant?: string) => void;
-  dec: (id: string, variant?: string) => void;
-  clear: () => void;
+  isOpen: boolean
 
-  open: () => void;
-  close: () => void;
-  setOpen: (v: boolean) => void;
-};
+  addItem: (item: Omit<CartItem, 'qty'> & { qty?: number }) => void
+  remove: (id: string, variant?: string) => void
+  inc: (id: string, variant?: string) => void
+  dec: (id: string, variant?: string) => void
 
-const MAX_QTY_DEFAULT = 10;
+  setItemQty: (id: string, variant: string | undefined, qty: number) => void
+  clear: () => void
 
-function key(id: string, v?: string) {
-  return `${id}__${v ?? ""}`;
+  open: () => void
+  close: () => void
+  setOpen: (v: boolean) => void
+}
+
+const STORAGE_KEY = 'cart-v2'
+const MAX_QTY_DEFAULT = 10
+
+const makeKey = (id: string, variant?: string) => `${id}__${variant ?? ''}`
+const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v))
+
+function computeMaxQty(incoming: Omit<CartItem, 'qty'> & { qty?: number }): number {
+  const isBundle = incoming.type === 'bundle'
+  let baseMax = incoming.maxQty ?? (isBundle ? 1 : MAX_QTY_DEFAULT)
+
+  if (typeof incoming.promoLimitQty === 'number') {
+    baseMax = Math.min(baseMax, Math.max(1, incoming.promoLimitQty))
+  }
+  return Math.max(1, baseMax)
 }
 
 export const useCart = create<CartState>()(
@@ -58,104 +64,120 @@ export const useCart = create<CartState>()(
       items: [],
       isOpen: false,
 
-      addItem: (incoming) =>
-        set((s) => {
-          const k = key(incoming.id, incoming.variant);
-          const idx = s.items.findIndex((it) => key(it.id, it.variant) === k);
+      addItem: incoming =>
+        set(s => {
+          const idx = s.items.findIndex(
+            it => makeKey(it.id, it.variant) === makeKey(incoming.id, incoming.variant)
+          )
 
-          const isBundle = incoming.type === "bundle";
-          // базовый максимум: бандл = 1, иначе дефолт/переданный maxQty
-          let baseMax = incoming.maxQty ?? (isBundle ? 1 : MAX_QTY_DEFAULT);
-
-          // если промо-лимит указан — ужимаем максимум
-          if (typeof incoming.promoLimitQty === "number") {
-            baseMax = Math.min(baseMax, Math.max(1, incoming.promoLimitQty));
-          }
-
-          const maxQty = baseMax;
-          const addQty = Math.max(1, incoming.qty ?? 1);
+          const isBundle = incoming.type === 'bundle'
+          const maxQty = computeMaxQty(incoming)
+          const addQty = Math.max(1, incoming.qty ?? 1)
 
           if (idx >= 0) {
-            const next = [...s.items];
-            const cur = next[idx];
+            const next = [...s.items]
+            const cur = next[idx]
 
-            const effMax = Math.min(cur.maxQty ?? maxQty, maxQty);
-            const nextQty = Math.min(effMax, cur.qty + addQty);
+            const effMax = Math.min(cur.maxQty ?? maxQty, maxQty)
+            const nextQty = clamp(cur.qty + addQty, 1, effMax)
 
             next[idx] = {
               ...cur,
               qty: nextQty,
-              // принудительно блокируем если бандл или промо=1
               lockQty:
-                true === cur.lockQty
+                cur.lockQty === true
                   ? true
-                  : isBundle ||
-                    (incoming.promoLimitQty != null && maxQty === 1),
+                  : isBundle || (incoming.promoLimitQty != null && effMax === 1),
               maxQty: effMax,
-              promoLimitQty: incoming.promoLimitQty ?? cur.promoLimitQty,
-            };
+              promoLimitQty: incoming.promoLimitQty ?? cur.promoLimitQty
+            }
 
-            return { items: next, isOpen: true };
+            return { items: next, isOpen: true }
           }
 
           return {
             items: [
               {
                 ...incoming,
-                qty: Math.min(maxQty, addQty),
-                type: incoming.type ?? "single",
-                // принудительно блокируем если бандл или промо=1
+                type: incoming.type ?? 'single',
+                qty: clamp(addQty, 1, maxQty),
                 lockQty:
-                  true === incoming.lockQty
+                  incoming.lockQty === true
                     ? true
-                    : isBundle ||
-                      (incoming.promoLimitQty != null && maxQty === 1),
-                maxQty,
+                    : isBundle || (incoming.promoLimitQty != null && maxQty === 1),
+                maxQty
               },
-              ...s.items,
+              ...s.items
             ],
-            isOpen: true,
-          };
+            isOpen: true
+          }
         }),
 
       remove: (id, variant) =>
-        set((s) => ({
-          items: s.items.filter(
-            (it) => key(it.id, it.variant) !== key(id, variant)
-          ),
+        set(s => ({
+          items: s.items.filter(it => makeKey(it.id, it.variant) !== makeKey(id, variant))
         })),
 
       inc: (id, variant) =>
-        set((s) => ({
-          items: s.items.map((it) => {
-            if (key(it.id, it.variant) !== key(id, variant)) return it;
-            if (it.lockQty) return it;
+        set(s => ({
+          items: s.items.map(it => {
+            if (makeKey(it.id, it.variant) !== makeKey(id, variant)) return it
+            if (it.lockQty) return it
+
             const promoCap =
-              typeof it.promoLimitQty === "number"
-                ? Math.max(1, it.promoLimitQty)
-                : MAX_QTY_DEFAULT;
-            const max = Math.min(it.maxQty ?? MAX_QTY_DEFAULT, promoCap);
-            return { ...it, qty: Math.min(max, it.qty + 1) };
-          }),
+              typeof it.promoLimitQty === 'number' ? Math.max(1, it.promoLimitQty) : MAX_QTY_DEFAULT
+
+            const hardMax = it.maxQty ?? MAX_QTY_DEFAULT
+            const max = Math.min(hardMax, promoCap)
+
+            return { ...it, qty: clamp(it.qty + 1, 1, max) }
+          })
         })),
 
       dec: (id, variant) =>
-        set((s) => ({
+        set(s => ({
           items: s.items
-            .map((it) => {
-              if (key(it.id, it.variant) !== key(id, variant)) return it;
-              if (it.lockQty) return it;
-              return { ...it, qty: Math.max(1, it.qty - 1) };
+            .map(it => {
+              if (makeKey(it.id, it.variant) !== makeKey(id, variant)) return it
+              if (it.lockQty) return it
+              return { ...it, qty: clamp(it.qty - 1, 1, it.maxQty ?? MAX_QTY_DEFAULT) }
             })
-            .filter((it) => it.qty > 0),
+            .filter(it => it.qty > 0)
+        })),
+
+      setItemQty: (id, variant, qty) =>
+        set(s => ({
+          items: s.items.map(it => {
+            if (makeKey(it.id, it.variant) !== makeKey(id, variant)) return it
+            if (it.lockQty) return it
+
+            const promoCap =
+              typeof it.promoLimitQty === 'number' ? Math.max(1, it.promoLimitQty) : MAX_QTY_DEFAULT
+            const hardMax = it.maxQty ?? MAX_QTY_DEFAULT
+            const max = Math.min(hardMax, promoCap)
+
+            return { ...it, qty: clamp(Math.round(qty || 1), 1, max) }
+          })
         })),
 
       clear: () => set({ items: [] }),
 
       open: () => set({ isOpen: true }),
       close: () => set({ isOpen: false }),
-      setOpen: (v) => set({ isOpen: v }),
+      setOpen: v => set({ isOpen: v })
     }),
-    { name: "cart-v1" }
+    {
+      name: STORAGE_KEY,
+      version: 2,
+      storage: createJSONStorage(() => localStorage),
+
+      partialize: state => ({ items: state.items }),
+      migrate: (persisted, from) => {
+        if (from < 2 && persisted && Array.isArray((persisted as any).items)) {
+          return { items: (persisted as any).items }
+        }
+        return persisted as any
+      }
+    }
   )
-);
+)

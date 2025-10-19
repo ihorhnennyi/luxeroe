@@ -1,25 +1,50 @@
-// src/components/common/SafeCurrency.tsx
-"use client";
-import { useEffect, useState } from "react";
+'use client'
+import * as React from 'react'
 
-export default function SafeCurrency({ value }: { value: number }) {
-  const [txt, setTxt] = useState<string>("");
+type Props = {
+  value?: number | null
+  locale?: string
+  currency?: string
+  maximumFractionDigits?: number
+  minimumFractionDigits?: number
+  as?: React.ElementType
+} & React.ComponentPropsWithoutRef<'span'>
 
-  useEffect(() => {
-    try {
-      setTxt(
-        new Intl.NumberFormat("uk-UA", {
-          style: "currency",
-          currency: "UAH",
-          maximumFractionDigits: 0,
-        }).format(value)
-      );
-    } catch {
-      setTxt(`${Math.round(value)} ₴`);
+export default function SafeCurrency({
+  value,
+  locale = 'uk-UA',
+  currency = 'UAH',
+  maximumFractionDigits = 0,
+  minimumFractionDigits,
+  as: Tag = 'span',
+  ...rest
+}: Props) {
+  const [txt, setTxt] = React.useState<string>('')
+
+  React.useEffect(() => {
+    const n = Number(value)
+    if (!Number.isFinite(n)) {
+      setTxt('—')
+      return
     }
-  }, [value]);
+    try {
+      const fmt = new Intl.NumberFormat(locale, {
+        style: 'currency',
+        currency,
+        maximumFractionDigits,
+        ...(minimumFractionDigits != null ? { minimumFractionDigits } : {})
+      })
+      setTxt(fmt.format(n))
+    } catch {
+      setTxt(`${Math.round(n)} ₴`)
+    }
+  }, [value, locale, currency, maximumFractionDigits, minimumFractionDigits])
+
+  const fallback = Number.isFinite(Number(value)) ? `${Math.round(Number(value))} ₴` : '—'
 
   return (
-    <span suppressHydrationWarning>{txt || `${Math.round(value)} ₴`}</span>
-  );
+    <Tag suppressHydrationWarning {...rest}>
+      {txt || fallback}
+    </Tag>
+  )
 }

@@ -4,6 +4,7 @@ import type { ButtonProps, SxProps, Theme } from '@mui/material'
 import { Button } from '@mui/material'
 import { alpha } from '@mui/material/styles'
 import Link from 'next/link'
+import { forwardRef } from 'react'
 
 type AnimMode = 'pulse' | 'sheen' | 'none'
 type GreenTone = 'pine' | 'emerald' | 'teal'
@@ -12,7 +13,10 @@ type Props = {
   href?: string
   anim?: AnimMode
   forceButton?: boolean
-  greenTone?: GreenTone // ← выбор зелёного
+  greenTone?: GreenTone
+  target?: React.AnchorHTMLAttributes<HTMLAnchorElement>['target']
+  rel?: string
+  prefetch?: boolean
 } & ButtonProps
 
 const schemes = {
@@ -48,14 +52,20 @@ const schemes = {
   }
 } as const
 
-export default function AnimatedCta({
-  href,
-  children,
-  anim = 'pulse',
-  forceButton = false,
-  greenTone = 'pine',
-  ...btn
-}: Props) {
+const AnimatedCta = forwardRef<HTMLButtonElement, Props>(function AnimatedCta(
+  {
+    href,
+    children,
+    anim = 'pulse',
+    forceButton = false,
+    greenTone = 'pine',
+    target,
+    rel,
+    prefetch = false,
+    ...btn
+  },
+  ref
+) {
   const cs = schemes[greenTone]
 
   const baseSx: SxProps<Theme> = {
@@ -67,20 +77,23 @@ export default function AnimatedCta({
     fontSize: { xs: 14, sm: 15, md: 16 },
     px: { xs: 2.25, sm: 3 },
     py: { xs: 1, sm: 1.25 },
-    borderRadius: 999, // более «капсульная» форма как на скрине
+    borderRadius: 999,
     minHeight: { xs: 38, sm: 44 },
     textTransform: 'none',
-    // ВАЖНО: никаких transform у кнопки → текст остаётся резким
     background: cs.grad,
     boxShadow: t => cs.shadow(t),
-    '&:hover': {
-      background: cs.gradHover,
-      boxShadow: t => cs.shadowHover(t)
+    '&:hover': { background: cs.gradHover, boxShadow: t => cs.shadowHover(t) },
+
+    // keyframes вынесены на корень — стабильнее
+    '@keyframes ring': {
+      '0%': { transform: 'scale(0.96)', opacity: 0.5 },
+      '70%': { transform: 'scale(1.12)', opacity: 0 },
+      '100%': { transform: 'scale(1.12)', opacity: 0 }
     },
+    '@keyframes sheen': { '0%': { left: -120 }, '100%': { left: '130%' } },
 
     ...(anim === 'pulse'
       ? {
-          // Пульсируем только внешним «кольцом», кнопка статична
           '&::after': {
             content: '""',
             position: 'absolute',
@@ -88,14 +101,8 @@ export default function AnimatedCta({
             borderRadius: 999,
             border: cs.ring,
             pointerEvents: 'none',
-            '@keyframes ring': {
-              '0%': { transform: 'scale(0.96)', opacity: 0.5 },
-              '70%': { transform: 'scale(1.12)', opacity: 0 },
-              '100%': { transform: 'scale(1.12)', opacity: 0 }
-            },
             animation: 'ring 2s ease-out infinite'
           },
-          // Мягкое свечение только снизу, без blur над текстом
           '&::before': {
             content: '""',
             position: 'absolute',
@@ -124,26 +131,36 @@ export default function AnimatedCta({
             background: 'linear-gradient(90deg, transparent, rgba(255,255,255,.35), transparent)',
             pointerEvents: 'none'
           },
-          '@keyframes sheen': {
-            '0%': { left: -120 },
-            '100%': { left: '130%' }
-          },
           '&:hover::after': { animation: 'sheen .9s ease' }
         }
       : {})
   }
 
+  // Кнопка без ссылки
   if (!href || forceButton) {
     return (
-      <Button type="button" disableElevation {...btn} sx={baseSx}>
+      <Button ref={ref} disableElevation {...btn} sx={baseSx}>
         <span style={{ position: 'relative', zIndex: 1 }}>{children}</span>
       </Button>
     )
   }
 
+  // Кнопка-ссылка (Next Link)
   return (
-    <Button component={Link as any} href={href} disableElevation {...btn} sx={baseSx}>
+    <Button
+      ref={ref}
+      component={Link as any}
+      href={href}
+      target={target}
+      rel={rel ?? (target === '_blank' ? 'noopener noreferrer' : undefined)}
+      prefetch={prefetch}
+      disableElevation
+      {...btn}
+      sx={baseSx}
+    >
       <span style={{ position: 'relative', zIndex: 1 }}>{children}</span>
     </Button>
   )
-}
+})
+
+export default AnimatedCta

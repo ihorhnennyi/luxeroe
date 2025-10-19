@@ -1,36 +1,28 @@
-"use client";
-import { theme } from "@/styles/theme";
-import createCache from "@emotion/cache";
-import { CacheProvider } from "@emotion/react";
-import { CssBaseline, ThemeProvider } from "@mui/material";
-import { useServerInsertedHTML } from "next/navigation";
-import * as React from "react";
+'use client'
 
-function createEmotionCache() {
-  const cache = createCache({ key: "mui", prepend: true });
-  cache.compat = true;
-  return cache;
-}
+import { theme } from '@/styles/index'
+import createCache from '@emotion/cache'
+import { CacheProvider } from '@emotion/react'
+import { CssBaseline, ThemeProvider } from '@mui/material'
+import { useServerInsertedHTML } from 'next/navigation'
+import * as React from 'react'
 
-export default function ThemeRegistry({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  const [cache] = React.useState(() => createEmotionCache());
+const muiCache = createCache({ key: 'mui', prepend: true })
+muiCache.compat = true
 
+export default function ThemeRegistry({ children }: { children: React.ReactNode }) {
   useServerInsertedHTML(() => (
-    <style data-emotion={`mui ${Object.keys(cache.inserted).join(" ")}`}>
-      {Object.values(cache.inserted).join(" ")}
+    <style data-emotion={`mui ${Object.keys(muiCache.inserted).join(' ')}`}>
+      {Object.values(muiCache.inserted).join(' ')}
     </style>
-  ));
+  ))
 
   return (
-    <CacheProvider value={cache}>
+    <CacheProvider value={muiCache}>
       <ThemeProvider theme={theme}>
-        <CssBaseline />
+        <CssBaseline enableColorScheme />
         {children}
       </ThemeProvider>
     </CacheProvider>
-  );
+  )
 }

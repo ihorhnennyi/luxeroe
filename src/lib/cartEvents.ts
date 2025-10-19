@@ -1,4 +1,4 @@
-export type CartAddedPayload = {
+export type CartAddedPayload = Readonly<{
   id: string
   title: string
   image?: string
@@ -6,9 +6,14 @@ export type CartAddedPayload = {
   qty?: number
   price: number
   promoFirstPrice?: number
-}
+}>
 
 export function emitCartAdded(payload: CartAddedPayload) {
   if (typeof window === 'undefined') return
-  window.dispatchEvent(new CustomEvent('cart:item_added', { detail: payload }))
+  try {
+    const event = new CustomEvent<CartAddedPayload>('cart:item_added', { detail: payload })
+    window.dispatchEvent(event)
+  } catch (e) {
+    console.warn('[emitCartAdded] failed to dispatch', e)
+  }
 }

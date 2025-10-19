@@ -1,40 +1,19 @@
-// src/components/products/ProductCard.tsx
 'use client'
 
 import SafeCurrency from '@/components/common/SafeCurrency'
 import { emitCartAdded } from '@/lib/cartEvents'
-import { fbqTrack } from '@/lib/fb'
 import { useCart } from '@/store/cart'
 import type { Product } from '@/types/product'
 import AddToCartButton from './AddToCartButton'
+import ProductBadges from './ProductBadges'
 import SpecLine from './SpecLine'
+import WeightChips from './WeightChips'
 
-import { Box, Card, CardContent, Chip, Divider, Stack, Tooltip, Typography } from '@mui/material'
+import { Box, Card, CardContent, Divider, Stack, Tooltip, Typography } from '@mui/material'
 import { alpha } from '@mui/material/styles'
 import Image from 'next/image'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 
-/* ---------- helpers ---------- */
-function discountPct(price?: number, oldPrice?: number) {
-  if (!price || !oldPrice || oldPrice <= price) return null
-  const pct = Math.round((1 - price / oldPrice) * 100)
-  return pct > 0 ? `-${pct}%` : null
-}
-
-function badgeLabel(b?: Product['badge']) {
-  switch (b) {
-    case 'hit':
-      return 'Хіт'
-    case 'sale':
-      return 'Знижка'
-    case 'new':
-      return 'Новинка'
-    default:
-      return null
-  }
-}
-
-/* ---------- component ---------- */
 export default function ProductCard({ product }: { product: Product }) {
   const addItem = useCart(s => s.addItem)
 
@@ -43,71 +22,12 @@ export default function ProductCard({ product }: { product: Product }) {
   const [adding, setAdding] = useState(false)
   const addLockRef = useRef(false)
 
-  const pct = discountPct(product.price, product.oldPrice)
-
-  const badgeColor = useMemo(() => {
-    switch (product.badge) {
-      case 'new':
-        return 'info'
-      case 'hit':
-        return 'success'
-      case 'sale':
-        return 'error'
-      default:
-        return undefined
-    }
-  }, [product.badge])
-
-  /* ---------- fbq: ViewContent при первом появлении карточки в вьюпорте ---------- */
-  const rootRef = useRef<HTMLDivElement | null>(null)
-  const viewedRef = useRef(false)
-
-  useEffect(() => {
-    if (viewedRef.current) return
-    if (!rootRef.current || typeof window === 'undefined') return
-
-    if (!('IntersectionObserver' in window)) {
-      // fallback — отправим один раз на маунте
-      viewedRef.current = true
-      fbqTrack('ViewContent', {
-        content_ids: [product.id],
-        content_type: 'product',
-        content_name: product.title,
-        value: product.price,
-        currency: 'UAH'
-      })
-      return
-    }
-
-    const obs = new IntersectionObserver(
-      ([entry]) => {
-        if (!entry?.isIntersecting || viewedRef.current) return
-        viewedRef.current = true
-        obs.disconnect()
-        fbqTrack('ViewContent', {
-          content_ids: [product.id],
-          content_type: 'product',
-          content_name: product.title,
-          value: product.price,
-          currency: 'UAH'
-        })
-      },
-      { threshold: 0.2 }
-    )
-
-    obs.observe(rootRef.current)
-    return () => obs.disconnect()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [product.id])
-
-  /* ---------- add to cart ---------- */
   const handleAdd = () => {
     if (addLockRef.current || product.inStock === false) return
     addLockRef.current = true
     setAdding(true)
 
     try {
-      // 1) добавляем в стор
       addItem({
         id: product.id,
         title: product.title,
@@ -116,8 +36,6 @@ export default function ProductCard({ product }: { product: Product }) {
         variant,
         qty: 1
       })
-
-      // 2) эмитим глобальный алерт
       emitCartAdded({
         id: product.id,
         title: product.title,
@@ -126,19 +44,7 @@ export default function ProductCard({ product }: { product: Product }) {
         qty: 1,
         price: product.price
       })
-
-      // 3) fbq: AddToCart
-      fbqTrack('AddToCart', {
-        content_ids: [product.id],
-        content_type: 'product',
-        content_name: product.title,
-        value: product.price,
-        currency: 'UAH',
-        num_items: 1,
-        contents: [{ id: product.id, quantity: 1, item_price: product.price }]
-      })
     } finally {
-      // небольшой троттлинг клика, чтобы избежать двойного добавления
       setTimeout(() => {
         addLockRef.current = false
         setAdding(false)
@@ -148,7 +54,6 @@ export default function ProductCard({ product }: { product: Product }) {
 
   return (
     <Card
-      ref={rootRef}
       elevation={0}
       sx={{
         height: '100%',
@@ -166,7 +71,7 @@ export default function ProductCard({ product }: { product: Product }) {
         }
       }}
     >
-      {/* Фото */}
+      {/* Фото + бейджи */}
       <Box
         sx={{
           position: 'relative',
@@ -175,70 +80,29 @@ export default function ProductCard({ product }: { product: Product }) {
           borderTopRightRadius: 12
         }}
       >
-        <Box sx={{ position: 'relative', width: '100%', aspectRatio: '1 / 1', bgColor: '#f5f5f5' }}>
+        <Box sx={{ position: 'relative', width: '100%', aspectRatio: '1 / 1', bgcolor: '#f5f5f5' }}>
           <Image
             src={imgSrc}
             alt={product.title}
             fill
             sizes="(max-width: 600px) 100vw, 33vw"
-            priority={false}
             style={{ objectFit: 'cover' }}
             onError={() => setImgSrc('/placeholder.jpg')}
           />
         </Box>
 
-        {(product.badge || pct) && (
-          <Stack
-            direction="row"
-            spacing={0.75}
-            sx={{
-              position: 'absolute',
-              top: { xs: 8, sm: 12 },
-              left: { xs: 8, sm: 12 },
-              zIndex: 2
-            }}
-          >
-            {product.badge && (
-              <Chip
-                size="small"
-                label={badgeLabel(product.badge)}
-                color={badgeColor as any}
-                sx={{
-                  borderRadius: 999,
-                  px: 1,
-                  height: { xs: 20, sm: 22 },
-                  fontSize: { xs: 11, sm: 12 },
-                  fontWeight: 700
-                }}
-              />
-            )}
-            {pct && (
-              <Chip
-                size="small"
-                label={pct}
-                color="error"
-                sx={{
-                  borderRadius: 999,
-                  px: 1,
-                  height: { xs: 20, sm: 22 },
-                  fontSize: { xs: 11, sm: 12 },
-                  fontWeight: 700
-                }}
-              />
-            )}
-          </Stack>
-        )}
+        <ProductBadges
+          badge={product.badge}
+          price={product.price}
+          oldPrice={product.oldPrice}
+          sx={{ position: 'absolute', top: { xs: 8, sm: 12 }, left: { xs: 8, sm: 12 }, zIndex: 2 }}
+        />
       </Box>
 
       <Divider />
 
       <CardContent
-        sx={{
-          p: { xs: 1.5, sm: 2 },
-          display: 'flex',
-          flexDirection: 'column',
-          flexGrow: 1
-        }}
+        sx={{ p: { xs: 1.5, sm: 2 }, display: 'flex', flexDirection: 'column', flexGrow: 1 }}
       >
         {/* Назва */}
         <Typography
@@ -277,25 +141,7 @@ export default function ProductCard({ product }: { product: Product }) {
         </Stack>
 
         {/* Варіанти ваги */}
-        {product.weightOptions?.length ? (
-          <Stack direction="row" spacing={0.75} sx={{ mb: 1, flexWrap: 'wrap' }}>
-            {product.weightOptions.map(w => (
-              <Chip
-                key={w}
-                label={w}
-                size="small"
-                variant={variant === w ? 'filled' : 'outlined'}
-                color={variant === w ? 'primary' : 'default'}
-                onClick={() => setVariant(w)}
-                sx={{
-                  borderRadius: 1,
-                  height: { xs: 24, sm: 26 },
-                  fontSize: { xs: 12, sm: 12.5 }
-                }}
-              />
-            ))}
-          </Stack>
-        ) : null}
+        <WeightChips options={product.weightOptions} value={variant} onChange={setVariant} />
 
         {/* Характеристики */}
         {product.description && (
@@ -335,7 +181,7 @@ export default function ProductCard({ product }: { product: Product }) {
             </Tooltip>
           ) : (
             <AddToCartButton disabled={adding} onClick={handleAdd}>
-              {adding ? 'Додаємо…' : 'В кошик'}
+              {adding ? 'Додаємо… ' : 'В кошик'}
             </AddToCartButton>
           )}
         </Box>
