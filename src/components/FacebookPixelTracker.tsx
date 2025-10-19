@@ -1,18 +1,16 @@
-// src/components/FacebookPixelTracker.tsx
 'use client'
 
-import { usePathname, useSearchParams } from 'next/navigation'
+import { usePathname } from 'next/navigation'
 import { useEffect } from 'react'
 
 export default function FacebookPixelTracker() {
   const pathname = usePathname()
-  const searchParams = useSearchParams()
 
   useEffect(() => {
-    if (typeof window === 'undefined' || typeof window.fbq !== 'function') return
-
-    window.fbq('track', 'PageView')
-  }, [pathname, searchParams])
+    if (typeof window === 'undefined' || !('fbq' in window)) return
+    // @ts-ignore — объявляем fbq на window динамически
+    window.fbq?.('track', 'PageView')
+  }, [pathname])
 
   return null
 }
