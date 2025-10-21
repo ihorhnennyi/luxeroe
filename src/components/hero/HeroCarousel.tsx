@@ -8,7 +8,7 @@ type Slide = PromoSlide & { onAction?: () => void }
 
 export default function HeroCarousel({
   slides,
-  interval = 5000
+  interval = 15000
 }: {
   slides: Slide[]
   interval?: number
