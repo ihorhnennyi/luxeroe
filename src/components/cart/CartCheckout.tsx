@@ -4,9 +4,14 @@
 import { fbqTrack } from '@/lib/fb'
 import { useCart } from '@/store/cart'
 import { lineTotalFor } from '@/utils/cartPricing'
-import { Box, Button, Stack, TextField, Typography } from '@mui/material'
+import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded'
+import { Alert, Box, Button, Stack, TextField, Typography } from '@mui/material'
 import Link from 'next/link'
-import { useMemo, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
+import { useEffect, useMemo, useState } from 'react'
+
+/** Константы */
+const PAYMENT_METHOD = 'cod' as const
 
 /** Стабильный event_id для дедупликации пиксель ↔ CAPI */
 const genEventId = () =>
@@ -14,21 +19,31 @@ const genEventId = () =>
     ? crypto.randomUUID()
     : `${Date.now()}_${Math.random().toString(36).slice(2)}`
 
+const phoneOk = (raw: string) => /^\+?\d[\d\s-]{8,}$/.test(raw.trim())
+
+async function safeJsonPost(url: string, body: unknown) {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  })
+  if (!res.ok) {
+    let details = ''
+    try {
+      details = await res.text()
+    } catch {}
+    throw new Error(`HTTP ${res.status} ${res.statusText}${details ? ` — ${details}` : ''}`)
+  }
+  try {
+    return await res.json()
+  } catch {
+    return null
+  }
+}
+
 export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) {
+  const searchParams = useSearchParams()
   const { items, clear } = useCart()
-
-  const subtotal = useMemo(() => items.reduce((s, it) => s + lineTotalFor(it), 0), [items])
-
-  /** contents для пикселя (id, количество и unit price) */
-  const pixelContents = useMemo(
-    () =>
-      items.map(it => {
-        const qty = Math.max(1, it.qty)
-        const unit = lineTotalFor(it) / qty
-        return { id: it.id, quantity: qty, item_price: unit }
-      }),
-    [items]
-  )
 
   const [firstName, setFirst] = useState('')
   const [lastName, setLast] = useState('')
@@ -39,8 +54,25 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
 
   const [sending, setSending] = useState(false)
   const [sent, setSent] = useState<null | 'ok' | 'err'>(null)
+  const [errMsg, setErrMsg] = useState<string | null>(null)
 
-  const phoneOk = /^\+?\d[\d\s-]{8,}$/.test(phone.trim())
+  const subtotal = useMemo(() => items.reduce((s, it) => s + lineTotalFor(it), 0), [items])
+
+  const pixelContents = useMemo(
+    () =>
+      items.map(it => {
+        const qty = Math.max(1, it.qty)
+        const unit = lineTotalFor(it) / qty
+        return { id: it.id, quantity: qty, item_price: unit }
+      }),
+    [items]
+  )
+
+  // Демо-режим: /cart?demo=ok — сразу показать экран успеха (без редиректов)
+  useEffect(() => {
+    if (searchParams?.get('demo') === 'ok') setSent('ok')
+  }, [searchParams])
+
   const canSubmit =
     !sending &&
     items.length > 0 &&
@@ -48,19 +80,17 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
     lastName.trim() &&
     city.trim() &&
     branch.trim() &&
-    phoneOk
+    phoneOk(phone)
 
   const checkout = async () => {
-    if (!canSubmit) {
-      setSent('err')
-      return
-    }
+    if (!canSubmit || sending) return
+    setErrMsg(null)
 
     try {
       setSending(true)
       const eventId = genEventId()
 
-      // 1) InitiateCheckout — надёжная точка, до вызова API
+      // 1) InitiateCheckout
       try {
         fbqTrack('InitiateCheckout', {
           event_id: eventId,
@@ -72,7 +102,7 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
         })
       } catch {}
 
-      // 2) Подготовка полезной нагрузки
+      // 2) Payload
       const payloadItems = items.map(it => ({
         id: it.id,
         title: it.title,
@@ -83,42 +113,40 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
         type: it.type
       }))
 
-      // 3) Вызов API. Пробрасываем eventId (для CAPI дедупликации на сервере).
-      const res = await fetch('/api/order', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          customer: {
-            firstName: firstName.trim(),
-            lastName: lastName.trim(),
-            phone: phone.trim(),
-            city: city.trim(),
-            branch: branch.trim()
-          },
-          note: note.trim() || undefined,
-          items: payloadItems,
-          subtotal,
-          source: typeof window !== 'undefined' ? window.location.href : undefined,
-          eventId
-        })
+      // 3) API
+      await safeJsonPost('/api/order', {
+        customer: {
+          firstName: firstName.trim(),
+          lastName: lastName.trim(),
+          phone: phone.trim(),
+          city: city.trim(),
+          branch: branch.trim()
+        },
+        paymentMethod: PAYMENT_METHOD,
+        note: note.trim() || undefined,
+        items: payloadItems,
+        subtotal,
+        source: typeof window !== 'undefined' ? window.location.href : undefined,
+        eventId
       })
 
-      if (!res.ok) throw new Error('Bad response')
-
-      // 4) Purchase — только после успешного ответа сервера
+      // 4) Purchase (антидубли по eventId)
       try {
-        fbqTrack('Purchase', {
-          event_id: eventId,
-          value: subtotal,
-          currency: 'UAH',
-          contents: pixelContents,
-          content_type: 'product'
-        })
-        // Помечаем покупку, чтобы при перезагрузке не было повторного Purchase
-        sessionStorage.setItem('fb:last_purchase_id', eventId)
+        const key = 'fb:last_purchase_id'
+        const last = sessionStorage.getItem(key)
+        if (last !== eventId) {
+          fbqTrack('Purchase', {
+            event_id: eventId,
+            value: subtotal,
+            currency: 'UAH',
+            contents: pixelContents,
+            content_type: 'product'
+          })
+          sessionStorage.setItem(key, eventId)
+        }
       } catch {}
 
-      // 5) Очистка и уведомление интерфейса
+      // 5) Успех — остаёмся на этой же странице, показываем блок подтверждения
       onSuccess?.()
       clear()
       setFirst('')
@@ -128,15 +156,57 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
       setBranch('')
       setNote('')
       setSent('ok')
-    } catch {
+    } catch (e: any) {
+      setErrMsg(e?.message || 'Помилка оформлення. Спробуйте ще раз.')
       setSent('err')
     } finally {
       setSending(false)
-      // аккуратно скрываем статус через небольшую паузу
-      setTimeout(() => setSent(null), 1800)
+      setTimeout(() => setSent(prev => (prev === 'ok' ? 'ok' : null)), 1800)
     }
   }
 
+  /** Экран підтвердження — без автопереходов */
+  if (sent === 'ok') {
+    return (
+      <Box
+        sx={{
+          mt: 3,
+          border: 1,
+          borderColor: 'divider',
+          borderRadius: 3,
+          p: { xs: 2.5, md: 3.5 },
+          textAlign: 'center'
+        }}
+      >
+        <CheckCircleRoundedIcon sx={{ fontSize: 48, color: '#2DAF92', mb: 1 }} />
+
+        <Typography variant="h6" fontWeight={900} sx={{ mb: 1 }}>
+          Замовлення прийнято!
+        </Typography>
+
+        <Typography color="text.secondary" sx={{ mb: 2, lineHeight: 1.7 }}>
+          Дякуємо, що обрали <b>LuxeRoe</b>! 💛 Ваше замовлення успішно оформлене і вже передане в
+          обробку. Наш менеджер зв’яжеться з вами найближчим часом для підтвердження деталей
+          доставки.
+          <br />
+          Оплата — <b>накладений платіж</b> (при отриманні у відділенні Нової пошти). Після
+          відправки ви отримаєте SMS/Viber з номером ТТН, за яким можна відстежувати посилку.
+          Відправлення — щодня до 15:00.
+        </Typography>
+
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} justifyContent="center">
+          <Button component={Link as any} href="/" variant="contained">
+            На головну
+          </Button>
+          <Button component={Link as any} href="/" sx={{ fontWeight: 700 }}>
+            Продовжити покупки
+          </Button>
+        </Stack>
+      </Box>
+    )
+  }
+
+  /** Форма */
   return (
     <Box
       sx={{
@@ -144,7 +214,8 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
         border: 1,
         borderColor: 'divider',
         borderRadius: 3,
-        p: { xs: 2, md: 3 }
+        p: { xs: 2, md: 3 },
+        opacity: sending ? 0.9 : 1
       }}
     >
       <Stack direction="row" justifyContent="space-between" alignItems="baseline" sx={{ mb: 2 }}>
@@ -155,6 +226,14 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
           {subtotal.toLocaleString('uk-UA')} ₴
         </Typography>
       </Stack>
+
+      <Alert
+        icon={false}
+        severity="success"
+        sx={{ mb: 2, fontWeight: 700, '& .MuiAlert-message': { width: '100%' } }}
+      >
+        Оплата: <b>Накладений платіж</b> — сплачуєте при отриманні на Новій пошті.
+      </Alert>
 
       <Stack spacing={1.25}>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
@@ -167,6 +246,7 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
             required
             InputLabelProps={{ shrink: true }}
             inputProps={{ autoComplete: 'given-name', name: 'firstName' }}
+            disabled={sending}
           />
           <TextField
             label="Прізвище"
@@ -177,6 +257,7 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
             required
             InputLabelProps={{ shrink: true }}
             inputProps={{ autoComplete: 'family-name', name: 'lastName' }}
+            disabled={sending}
           />
         </Stack>
 
@@ -190,15 +271,12 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
             fullWidth
             size="small"
             required
-            error={!!phone && !phoneOk}
-            helperText={!!phone && !phoneOk ? 'Перевірте формат телефону' : ' '}
+            error={!!phone && !phoneOk(phone)}
+            helperText={!!phone && !phoneOk(phone) ? 'Перевірте формат телефону' : ' '}
             FormHelperTextProps={{ sx: { m: 0 } }}
             InputLabelProps={{ shrink: true }}
-            inputProps={{
-              autoComplete: 'tel',
-              enterKeyHint: 'next',
-              name: 'phone'
-            }}
+            inputProps={{ autoComplete: 'tel', enterKeyHint: 'next', name: 'phone' }}
+            disabled={sending}
           />
           <TextField
             label="Місто"
@@ -209,6 +287,7 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
             required
             InputLabelProps={{ shrink: true }}
             inputProps={{ autoComplete: 'address-level2', name: 'city' }}
+            disabled={sending}
           />
         </Stack>
 
@@ -222,6 +301,7 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
           required
           InputLabelProps={{ shrink: true }}
           inputProps={{ name: 'branch' }}
+          disabled={sending}
         />
 
         <TextField
@@ -232,6 +312,7 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
           minRows={2}
           InputLabelProps={{ shrink: true }}
           inputProps={{ name: 'note' }}
+          disabled={sending}
         />
 
         <Stack
@@ -244,6 +325,7 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
             component={Link as any}
             href="/"
             sx={{ order: { xs: 2, sm: 1 }, alignSelf: { xs: 'stretch', sm: 'auto' } }}
+            disabled={sending}
           >
             Продовжити покупки
           </Button>
@@ -269,9 +351,9 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
           </Button>
         </Stack>
 
-        {sent === 'err' && (
+        {(sent === 'err' || errMsg) && (
           <Typography sx={{ color: 'error.main', fontWeight: 700 }}>
-            Перевірте поля та спробуйте ще раз.
+            {errMsg || 'Перевірте поля та спробуйте ще раз.'}
           </Typography>
         )}
       </Stack>
