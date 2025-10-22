@@ -43,6 +43,15 @@ async function safeJsonPost(url: string, body: unknown) {
 
 type Stage = 'idle' | 'sending' | 'done' | 'error'
 
+declare global {
+  interface Window {
+    turnstile?: {
+      render: (el: string | HTMLElement, opts: any) => void
+      reset?: (widgetId?: string) => void
+    }
+  }
+}
+
 /* ───────── component ───────── */
 export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) {
   const searchParams = useSearchParams()
@@ -58,11 +67,23 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
   // honeypot — невидимое поле (боты часто его заполняют)
   const [hpCompany, setHpCompany] = useState('')
 
+  // Turnstile token (если подключён скрипт + есть sitekey)
+  const [cfToken, setCfToken] = useState<string | null>(null)
+  const turnstileHostRef = useRef<HTMLDivElement | null>(null)
+  const siteKey = process.env.NEXT_PUBLIC_CF_TURNSTILE_SITE_KEY
+
+  // стадия и ошибки
   const [stage, setStage] = useState<Stage>('idle')
   const [errMsg, setErrMsg] = useState<string | null>(null)
 
   // чтобы не отправили повторно «двойным» кликом/тапом
   const sendingRef = useRef(false)
+
+  // таймер заполнения формы — включается при первом вводе
+  const formStartRef = useRef<number | null>(null)
+  const touchForm = () => {
+    if (!formStartRef.current) formStartRef.current = Date.now()
+  }
 
   const subtotal = useMemo(() => items.reduce((s, it) => s + lineTotalFor(it), 0), [items])
 
@@ -81,6 +102,23 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
     if (searchParams?.get('demo') === 'ok') setStage('done')
   }, [searchParams])
 
+  // Рендер Turnstile (если ключ задан и скрипт подключён в layout)
+  useEffect(() => {
+    if (!siteKey) return
+    const mount = () => {
+      if (window.turnstile && turnstileHostRef.current) {
+        window.turnstile.render(turnstileHostRef.current, {
+          sitekey: siteKey,
+          callback: (token: string) => setCfToken(token),
+          'error-callback': () => setCfToken(null),
+          'expired-callback': () => setCfToken(null),
+          size: 'invisible' // не мешаем UX
+        })
+      }
+    }
+    mount()
+  }, [siteKey])
+
   const disabled = stage === 'sending'
   const canSubmit =
     !disabled &&
@@ -91,9 +129,7 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
     branch.trim() &&
     phoneOk(phone)
 
-  function normalize(str: string) {
-    return str.replace(/\s+/g, ' ').trim()
-  }
+  const normalize = (str: string) => str.replace(/\s+/g, ' ').trim()
 
   const submit = async () => {
     if (!canSubmit || sendingRef.current) return
@@ -134,6 +170,11 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
         type: it.type
       }))
 
+      const formMs =
+        typeof window !== 'undefined' && formStartRef.current
+          ? Date.now() - formStartRef.current
+          : undefined
+
       await safeJsonPost('/api/order', {
         customer: {
           firstName: normalize(firstName),
@@ -148,7 +189,12 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
         subtotal,
         source: typeof window !== 'undefined' ? window.location.href : undefined,
         eventId,
-        antiSpam: { hpCompany } // сервер может использовать/игнорировать
+        antiSpam: {
+          hpCompany,
+          formMs,
+          // если Turnstile не подключён — поле null и сервер пропустит
+          cfToken: cfToken || undefined
+        }
       })
 
       // pixel: Purchase (анти-дубль по eventId)
@@ -177,6 +223,8 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
       setBranch('')
       setNote('')
       setHpCompany('')
+      setCfToken(null)
+      formStartRef.current = null
       setStage('done')
     } catch (e: any) {
       setErrMsg('Помилка оформлення. Перевірте поля та спробуйте ще раз.')
@@ -239,7 +287,8 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
         borderColor: 'divider',
         borderRadius: 3,
         p: { xs: 2, md: 3 },
-        opacity: stage === 'sending' ? 0.95 : 1
+        opacity: stage === 'sending' ? 0.95 : 1,
+        position: 'relative'
       }}
       onKeyDown={onKeyDownSubmit}
     >
@@ -265,7 +314,10 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
           <TextField
             label="Ім’я"
             value={firstName}
-            onChange={e => setFirst(e.target.value)}
+            onChange={e => {
+              touchForm()
+              setFirst(e.target.value)
+            }}
             fullWidth
             size="small"
             required
@@ -276,7 +328,10 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
           <TextField
             label="Прізвище"
             value={lastName}
-            onChange={e => setLast(e.target.value)}
+            onChange={e => {
+              touchForm()
+              setLast(e.target.value)
+            }}
             fullWidth
             size="small"
             required
@@ -290,7 +345,10 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
           <TextField
             label="Телефон"
             value={phone}
-            onChange={e => setPhone(e.target.value)}
+            onChange={e => {
+              touchForm()
+              setPhone(e.target.value)
+            }}
             inputMode="tel"
             placeholder="+380"
             fullWidth
@@ -306,7 +364,10 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
           <TextField
             label="Місто"
             value={city}
-            onChange={e => setCity(e.target.value)}
+            onChange={e => {
+              touchForm()
+              setCity(e.target.value)
+            }}
             fullWidth
             size="small"
             required
@@ -319,7 +380,10 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
         <TextField
           label="Відділення Нової пошти"
           value={branch}
-          onChange={e => setBranch(e.target.value)}
+          onChange={e => {
+            touchForm()
+            setBranch(e.target.value)
+          }}
           placeholder="Наприклад: Відділення №6"
           fullWidth
           size="small"
@@ -332,7 +396,10 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
         <TextField
           label="Коментар до замовлення (необов’язково)"
           value={note}
-          onChange={e => setNote(e.target.value)}
+          onChange={e => {
+            touchForm()
+            setNote(e.target.value)
+          }}
           multiline
           minRows={2}
           InputLabelProps={{ shrink: true }}
@@ -364,6 +431,16 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
             visibility: 'hidden'
           }}
         />
+
+        {/* Turnstile контейнер (невидимый, если используется) */}
+        {siteKey ? (
+          <div
+            ref={turnstileHostRef}
+            id="cf-turnstile"
+            style={{ position: 'absolute', left: -99999, width: 1, height: 1, overflow: 'hidden' }}
+            aria-hidden="true"
+          />
+        ) : null}
 
         <Stack
           direction={{ xs: 'column', sm: 'row' }}

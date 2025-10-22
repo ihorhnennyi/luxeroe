@@ -6,23 +6,46 @@ import { z } from 'zod'
 
 export const runtime = 'nodejs'
 
-// ── настройки
+/* ───────────────── settings ───────────────── */
 const NOTE_MAX = 600
-const MIN_FORM_MS = 3500 // минимум 3.5s на заполнение
-const RATE_WINDOW_MS = 10 * 60_000 // 10 минут
-const RATE_MAX_IP = 5 // макс. 5 заявок/IP за окно
-const RATE_MAX_PHONE = 3 // макс. 3 заявки/телефон за окно
-const DUP_TTL_MS = 15 * 60_000 // 15 минут дедуп
+const MIN_FORM_MS = 3500 // min time to fill form (ms)
+const RATE_WINDOW_MS = 10 * 60_000 // 10 minutes
+const RATE_MAX_IP = 5 // max orders per IP per window
+const RATE_MAX_PHONE = 3 // max orders per phone per window
+const DUP_TTL_MS = 15 * 60_000 // dedup hold time
+const MAX_BODY_BYTES = 64 * 1024 // 64KB payload cap
 
-// ── in-memory (в проде внеси в Redis)
+/* ───────────────── in-memory stores (move to Redis in prod) ───────────────── */
 const ipBuckets = new Map<string, { hits: number; ts: number }>()
 const phoneBuckets = new Map<string, { hits: number; ts: number }>()
 const dedupe = new Map<string, number>()
+const bannedIp = new Set<string>([
+  // примеры:
+  // '185.147.196.251',
+  // '124.198.132.121'
+])
+const bannedPhone = new Set<string>([
+  // '380XXXXXXXXX'
+])
 
-// ── utils
+// periodic cleanup to avoid memory growth
+setInterval(() => {
+  const now = Date.now()
+  for (const [k, v] of ipBuckets) if (now - v.ts > RATE_WINDOW_MS * 3) ipBuckets.delete(k)
+  for (const [k, v] of phoneBuckets) if (now - v.ts > RATE_WINDOW_MS * 3) phoneBuckets.delete(k)
+  for (const [k, until] of dedupe) if (until < now) dedupe.delete(k)
+}, 15 * 60_000).unref()
+
+/* ───────────────── utils ───────────────── */
 function getIp(req: Request) {
-  const xf = (req.headers.get('x-forwarded-for') || '').split(',')[0]?.trim()
-  return xf || req.headers.get('cf-connecting-ip') || '0.0.0.0'
+  // Priority: CF → X-Real-IP → X-Forwarded-For → fallback
+  const cf = req.headers.get('cf-connecting-ip')
+  if (cf) return cf
+  const xri = req.headers.get('x-real-ip')
+  if (xri) return xri
+  const xff = req.headers.get('x-forwarded-for')
+  if (xff) return xff.split(',')[0]?.trim() || '0.0.0.0'
+  return '0.0.0.0'
 }
 function rateOk(map: Map<string, { hits: number; ts: number }>, key: string, max: number) {
   const now = Date.now()
@@ -36,12 +59,20 @@ function rateOk(map: Map<string, { hits: number; ts: number }>, key: string, max
 }
 function looksLikeBotUA(ua: string) {
   const s = (ua || '').toLowerCase()
-  return /httpclient|python|curl|wget|postman|headless|crawler|spider|bot(?!.*bing)/.test(s)
+  const bad =
+    /httpclient|python|curl|wget|postman|headless|crawler|spider|httrack|go-http|java|libwww|scrapy|axios\/?\d|node-fetch|php|perl|ruby|powershell|masscan|sqlmap|nikto|python-requests|bot(?!.*bing)/.test(
+      s
+    )
+  if (bad) return true
+  // soft white-hint: common browsers with platform mention
+  // (не баним редкие норм. браузеры — возвращаем false)
+  // const good = /(chrome|safari|firefox|edg)\/\d+.*(windows|macintosh|linux|android|iphone|ipad)/.test(s)
+  return false
 }
 function sameOrigin(req: Request) {
-  // Проверяем Origin или Referer против SITE_URL
+  // Check Origin or Referer against SITE_URL
   const site = (process.env.SITE_URL || '').replace(/\/+$/, '')
-  if (!site) return true // если переменная не задана — не валим
+  if (!site) return true
   const origin = req.headers.get('origin') || ''
   const referer = req.headers.get('referer') || ''
   return origin.startsWith(site) || referer.startsWith(site)
@@ -66,8 +97,22 @@ function sanitizeNote(s?: string) {
   t = t.slice(0, NOTE_MAX)
   return t || undefined
 }
+async function verifyTurnstile(token?: string, ip?: string) {
+  if (!token || !process.env.CF_TURNSTILE_SECRET) return true // not enforced if secret missing
+  const res = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body:
+      `secret=${encodeURIComponent(process.env.CF_TURNSTILE_SECRET)}` +
+      `&response=${encodeURIComponent(token)}` +
+      (ip ? `&remoteip=${encodeURIComponent(ip)}` : '')
+  }).catch(() => null)
+  if (!res) return false
+  const data = (await res.json().catch(() => ({}))) as any
+  return !!data.success
+}
 
-// ── схема
+/* ───────────────── schema ───────────────── */
 const UA_PHONE = z
   .string()
   .trim()
@@ -121,13 +166,28 @@ const PayloadSchema = z.object({
   antiSpam: z
     .object({
       hpCompany: z.string().optional(),
-      formMs: z.number().optional()
+      formMs: z.number().optional(),
+      cfToken: z.string().optional() // Turnstile token (optional)
     })
     .optional()
 })
 
+/* ───────────────── handler ───────────────── */
 export async function POST(req: Request) {
   try {
+    // method/content-type/size pre-checks (fast fail)
+    if (req.method !== 'POST') {
+      return NextResponse.json({ ok: false, error: 'method_not_allowed' }, { status: 405 })
+    }
+    const ct = (req.headers.get('content-type') || '').toLowerCase()
+    if (!ct.startsWith('application/json')) {
+      return NextResponse.json({ ok: false, error: 'bad_content_type' }, { status: 415 })
+    }
+    const len = Number(req.headers.get('content-length') || '0')
+    if (len > MAX_BODY_BYTES) {
+      return NextResponse.json({ ok: false, error: 'payload_too_large' }, { status: 413 })
+    }
+
     // 0) базовые отказы до парсинга
     const ua = req.headers.get('user-agent') || ''
     if (looksLikeBotUA(ua)) {
@@ -137,13 +197,16 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: 'bad_origin' }, { status: 403 })
     }
 
-    // 1) rate-limit по IP
+    // 1) rate-limit по IP (+ бан-лист)
     const ip = getIp(req)
+    if (bannedIp.has(ip)) {
+      return NextResponse.json({ ok: false, error: 'ip_banned' }, { status: 403 })
+    }
     if (!rateOk(ipBuckets, ip, RATE_MAX_IP)) {
       return NextResponse.json({ ok: false, error: 'rate_ip' }, { status: 429 })
     }
 
-    // 2) валидация входа
+    // 2) JSON + валидация
     const json = await req.json().catch(() => null)
     const parsed = PayloadSchema.safeParse(json)
     if (!parsed.success) {
@@ -151,7 +214,7 @@ export async function POST(req: Request) {
     }
     const body = parsed.data
 
-    // 3) антиспам: honeypot + «человеческое» время
+    // 3) антиспам: honeypot + «человеческое» время + (опция) Turnstile
     if ((body.antiSpam?.hpCompany || '').trim()) {
       return NextResponse.json({ ok: false, error: 'honeypot' }, { status: 400 })
     }
@@ -159,9 +222,16 @@ export async function POST(req: Request) {
     if (formMs > 0 && formMs < MIN_FORM_MS) {
       return NextResponse.json({ ok: false, error: 'too_fast' }, { status: 400 })
     }
+    if (process.env.CF_TURNSTILE_SECRET) {
+      const ok = await verifyTurnstile(body.antiSpam?.cfToken, ip)
+      if (!ok) return NextResponse.json({ ok: false, error: 'captcha' }, { status: 400 })
+    }
 
-    // 4) rate-limit по телефону
+    // 4) rate-limit по телефону (+ бан-лист)
     const normPhone = body.customer.phone.replace(/\D/g, '')
+    if (bannedPhone.has(normPhone)) {
+      return NextResponse.json({ ok: false, error: 'phone_banned' }, { status: 403 })
+    }
     if (!rateOk(phoneBuckets, normPhone, RATE_MAX_PHONE)) {
       return NextResponse.json({ ok: false, error: 'rate_phone' }, { status: 429 })
     }
@@ -202,7 +272,7 @@ export async function POST(req: Request) {
       subtotal: body.subtotal
     })
 
-    // 7) отправка
+    // 7) отправка (fail-soft)
     const tgRes = await sendOrderToTelegram({
       ...(json as OrderPayload),
       note,
