@@ -1,4 +1,3 @@
-// src/components/cart/CartCheckout.tsx
 'use client'
 
 import { fbqTrack } from '@/lib/fb'
@@ -38,6 +37,25 @@ async function safeJsonPost(url: string, body: unknown) {
   } catch {
     return null
   }
+}
+
+// ─── SHA-256 + PoW на клиенте ───
+async function sha256Hex(s: string) {
+  const enc = new TextEncoder().encode(s)
+  const buf = await crypto.subtle.digest('SHA-256', enc)
+  const bytes = Array.from(new Uint8Array(buf))
+  return bytes.map(b => b.toString(16).padStart(2, '0')).join('')
+}
+async function solvePow(payload: string, difficulty: number) {
+  const prefix = '0'.repeat(Math.max(1, difficulty || 5))
+  let nonce = 0
+  const t0 = performance.now()
+  while (performance.now() - t0 < 1500) {
+    const hash = await sha256Hex(`${payload}:${nonce}`)
+    if (hash.startsWith(prefix)) return { nonce, hash }
+    nonce++
+  }
+  throw new Error('PoW timeout')
 }
 
 export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) {
@@ -100,7 +118,12 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
       const formToken = tJson.formToken as string
       const signature = tJson.signature as string
 
-      // 1) initiate
+      // достанем payload чтобы решить PoW (нужна diff)
+      const payloadStr = atob(formToken)
+      const { diff } = JSON.parse(payloadStr)
+      const { nonce: powNonce, hash: powHash } = await solvePow(payloadStr, diff)
+
+      // 1) pixel: InitiateCheckout
       try {
         fbqTrack('InitiateCheckout', {
           event_id: eventId,
@@ -144,11 +167,13 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
           clientNonce,
           formMs: Date.now() - startedAt,
           formToken,
-          signature
+          signature,
+          powNonce,
+          powHash
         }
       })
 
-      // 4) purchase
+      // 4) pixel: Purchase (антидубли по eventId)
       try {
         const key = 'fb:last_purchase_id'
         const last = sessionStorage.getItem(key)
@@ -164,7 +189,7 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
         }
       } catch {}
 
-      // 5) success UX
+      // 5) успех
       onSuccess?.()
       clear()
       setFirst('')
@@ -226,6 +251,7 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
     )
   }
 
+  // форма
   return (
     <Box
       sx={{
