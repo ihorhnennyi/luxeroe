@@ -1,3 +1,4 @@
+// src/app/api/order/route.ts
 import { sendOrderToTelegram, type OrderPayload } from '@/lib/telegram'
 import crypto from 'crypto'
 import { NextResponse } from 'next/server'
@@ -5,30 +6,30 @@ import { z } from 'zod'
 
 export const runtime = 'nodejs'
 
-// ───────────────── антибот/антиспам настройки ─────────────────
+// настройки
 const RATE_LIMIT = { windowMs: 10 * 60_000, max: 2 } // 2 заявки / 10 мин на IP
 const DUP_TTL_MS = 15 * 60_000
 const MIN_FORM_MS = 4000
 const NOTE_MAX = 600
 
-// in-memory (для VPS/PM2 ок; для кластера — вынести в Redis)
+// in-memory
 const ipBuckets = new Map<string, { hits: number; ts: number }>()
 const dedupeTtl = new Map<string, number>()
 
-// ───────────────── утилиты ─────────────────
+// утилиты
 function getIp(req: Request) {
   const xf = (req.headers.get('x-forwarded-for') || '').split(',')[0]?.trim()
   return xf || req.headers.get('cf-connecting-ip') || '0.0.0.0'
 }
 function rateLimitOk(ip: string) {
   const now = Date.now()
-  const bucket = ipBuckets.get(ip)
-  if (!bucket || now - bucket.ts > RATE_LIMIT.windowMs) {
+  const b = ipBuckets.get(ip)
+  if (!b || now - b.ts > RATE_LIMIT.windowMs) {
     ipBuckets.set(ip, { hits: 1, ts: now })
     return true
   }
-  bucket.hits++
-  return bucket.hits <= RATE_LIMIT.max
+  b.hits++
+  return b.hits <= RATE_LIMIT.max
 }
 function dedupeKey(input: any) {
   const { customer, items, subtotal } = input
@@ -52,10 +53,16 @@ function sameOrigin(req: Request) {
   return ref.startsWith(site)
 }
 function hmac(data: string) {
-  const secret = process.env.FORM_SIGN_SECRET || 'dev_secret'
-  return crypto.createHmac('sha256', secret).update(data).digest('hex')
+  const secret = process.env.FORM_SIGN_SECRET
+  if (!secret) throw new Error('FORM_SIGN_SECRET is not set')
+
+  return crypto
+    .createHmac('sha256', secret) // ← алгоритм указывается здесь
+    .update(data)
+    .digest('hex') // ← тут только формат вывода (hex)
 }
 
+// схема
 const ItemSchema = z.object({
   id: z.string().min(1),
   title: z.string().min(1),
@@ -105,7 +112,7 @@ function sanitizeNote(s?: string) {
 
 export async function POST(req: Request) {
   try {
-    // Базовая отсечка
+    // базовая отсечка
     const ua = req.headers.get('user-agent') || ''
     if (looksLikeBotUA(ua)) {
       return NextResponse.json({ ok: false, error: 'bot_ua' }, { status: 400 })
@@ -119,6 +126,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: 'rate_limited' }, { status: 429 })
     }
 
+    // парсинг
     const json = await req.json().catch(() => null)
     const parsed = PayloadSchema.safeParse(json)
     if (!parsed.success) {
@@ -129,26 +137,30 @@ export async function POST(req: Request) {
     // ── форменный токен обязателен ──
     const ft = body.antiSpam?.formToken || ''
     const sig = body.antiSpam?.signature || ''
+    if (!ft || !sig) {
+      return NextResponse.json({ ok: false, error: 'no_token' }, { status: 403 })
+    }
+
     try {
       const payload = Buffer.from(ft, 'base64').toString('utf8')
-      const ok = hmac(payload) === sig
-      if (!ok) return NextResponse.json({ ok: false, error: 'bad_token' }, { status: 403 })
-      const obj = JSON.parse(payload)
+      if (hmac(payload) !== sig) {
+        return NextResponse.json({ ok: false, error: 'bad_token' }, { status: 403 })
+      }
+      const obj = JSON.parse(payload) as { exp: number; ua: string; ip: string }
       if (!obj?.exp || Date.now() > obj.exp) {
         return NextResponse.json({ ok: false, error: 'token_expired' }, { status: 403 })
+      }
+      // жёсткая привязка к IP и UA
+      if ((obj.ua || '') !== ua || (obj.ip || '') !== ip) {
+        return NextResponse.json({ ok: false, error: 'token_mismatch' }, { status: 403 })
       }
     } catch {
       return NextResponse.json({ ok: false, error: 'bad_token' }, { status: 403 })
     }
 
     // ── honeypot + «человеческое время» ──
-    const hp = (body.antiSpam?.hpCompany || '').trim().toLowerCase()
-    if (hp.length > 0) {
-      // если бот вставил что-то "умное"
-      if (hp.includes('http') || hp.includes('www') || hp.includes('@') || hp.length > 2) {
-        return NextResponse.json({ ok: false, error: 'honeypot' }, { status: 400 })
-      }
-      // иначе любое непустое — тоже honeypot
+    const hp = (body.antiSpam?.hpCompany || '').trim()
+    if (hp) {
       return NextResponse.json({ ok: false, error: 'honeypot' }, { status: 400 })
     }
     const elapsed = body.antiSpam?.formMs ?? 0
@@ -166,7 +178,7 @@ export async function POST(req: Request) {
     }
     dedupeTtl.set(key, now + DUP_TTL_MS)
 
-    // ── нормализация ──
+    // нормализация
     const c = body.customer
     const safeCustomer = {
       firstName: c.firstName.trim(),
@@ -180,7 +192,7 @@ export async function POST(req: Request) {
       (process.env.SITE_URL ? `${process.env.SITE_URL.replace(/\/+$/, '')}/cart` : undefined)
     const note = sanitizeNote(body.note)
 
-    // Лог (обезличенный)
+    // лог
     console.log('[ORDER] incoming', {
       ua,
       ip,
@@ -200,14 +212,13 @@ export async function POST(req: Request) {
       anti: { elapsed, hasNonce: !!body.antiSpam?.clientNonce }
     })
 
-    // ── отправка в Telegram ──
+    // отправка в Telegram
     const tgRes = await sendOrderToTelegram({
       ...(body as OrderPayload),
       note,
       customer: safeCustomer,
       source
     })
-
     const tgOk = !!tgRes
     if (!tgOk) console.error('[ORDER] TG FAIL')
 

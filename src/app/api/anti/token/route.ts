@@ -9,7 +9,11 @@ const TOKEN_TTL_MS = 2 * 60_000 // токен живёт 2 минуты
 function hmac(data: string) {
   const secret = process.env.FORM_SIGN_SECRET
   if (!secret) throw new Error('FORM_SIGN_SECRET is not set')
-  return crypto.createHmac('sha256', secret).update(data).digest('hex')
+
+  return crypto
+    .createHmac('sha256', secret) // ← алгоритм указывается здесь
+    .update(data)
+    .digest('hex') // ← тут только формат вывода (hex)
 }
 
 function getIp(req: Request) {

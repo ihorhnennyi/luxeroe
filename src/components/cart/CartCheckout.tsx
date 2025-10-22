@@ -10,10 +10,8 @@ import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { useEffect, useMemo, useState } from 'react'
 
-/** Константы */
 const PAYMENT_METHOD = 'cod' as const
 
-/** Стабильный event_id для дедупликации пиксель ↔ CAPI */
 const genEventId = () =>
   typeof crypto !== 'undefined' && 'randomUUID' in crypto
     ? crypto.randomUUID()
@@ -26,7 +24,7 @@ async function safeJsonPost(url: string, body: unknown) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
-    credentials: 'same-origin' // помогает с приватными проверками
+    credentials: 'same-origin'
   })
   if (!res.ok) {
     let details = ''
@@ -57,13 +55,12 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
   const [sent, setSent] = useState<null | 'ok' | 'err'>(null)
   const [errMsg, setErrMsg] = useState<string | null>(null)
 
-  // ── антиспам (honeypot + «человеческое время» + client nonce) ──
-  const [hpCompany, setHpCompany] = useState('') // honeypot — должно остаться пустым
-  const [startedAt] = useState(() => Date.now()) // момент начала заполнения формы
-  const [clientNonce] = useState(genEventId()) // одноразовый рандом
+  // антиспам
+  const [hpCompany, setHpCompany] = useState('')
+  const [startedAt] = useState(() => Date.now())
+  const [clientNonce] = useState(genEventId())
 
   const subtotal = useMemo(() => items.reduce((s, it) => s + lineTotalFor(it), 0), [items])
-
   const pixelContents = useMemo(
     () =>
       items.map(it => {
@@ -74,7 +71,6 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
     [items]
   )
 
-  // Демо-режим: /cart?demo=ok — сразу показать экран успеха
   useEffect(() => {
     if (searchParams?.get('demo') === 'ok') setSent('ok')
   }, [searchParams])
@@ -96,7 +92,15 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
       setSending(true)
       const eventId = genEventId()
 
-      // 1) InitiateCheckout
+      // 0) получаем форм-токен
+      const tRes = await fetch('/api/anti/token', { method: 'GET', credentials: 'same-origin' })
+      if (!tRes.ok) throw new Error('Антиспам токен недоступен')
+      const tJson = await tRes.json()
+      if (!tJson?.ok) throw new Error('Антиспам токен не выдан')
+      const formToken = tJson.formToken as string
+      const signature = tJson.signature as string
+
+      // 1) initiate
       try {
         fbqTrack('InitiateCheckout', {
           event_id: eventId,
@@ -108,7 +112,7 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
         })
       } catch {}
 
-      // 2) Payload
+      // 2) payload
       const payloadItems = items.map(it => ({
         id: it.id,
         title: it.title,
@@ -119,7 +123,7 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
         type: it.type
       }))
 
-      // 3) API (+ антиспам-метки)
+      // 3) POST
       await safeJsonPost('/api/order', {
         customer: {
           firstName: firstName.trim(),
@@ -135,15 +139,16 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
         source: typeof window !== 'undefined' ? window.location.href : undefined,
         eventId,
         antiSpam: {
-          hpCompany, // honeypot — ДОЛЖЕН быть пуст
-          startedAt, // когда начали заполнять
-          clientNonce, // одноразовый маркер
-          formMs: Date.now() - startedAt
-          // captcha: '...'             // если подключишь Turnstile — сюда токен
+          hpCompany,
+          startedAt,
+          clientNonce,
+          formMs: Date.now() - startedAt,
+          formToken,
+          signature
         }
       })
 
-      // 4) Purchase (антидубли по eventId)
+      // 4) purchase
       try {
         const key = 'fb:last_purchase_id'
         const last = sessionStorage.getItem(key)
@@ -159,7 +164,7 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
         }
       } catch {}
 
-      // 5) Успех — остаёмся на странице, показываем подтверждение
+      // 5) success UX
       onSuccess?.()
       clear()
       setFirst('')
@@ -179,7 +184,6 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
     }
   }
 
-  // Экран підтвердження
   if (sent === 'ok') {
     return (
       <Box
@@ -192,36 +196,26 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
           textAlign: 'center'
         }}
       >
-        {' '}
-        <CheckCircleRoundedIcon sx={{ fontSize: 48, color: '#2DAF92', mb: 1 }} />{' '}
+        <CheckCircleRoundedIcon sx={{ fontSize: 48, color: '#2DAF92', mb: 1 }} />
         <Typography variant="h6" fontWeight={900} sx={{ mb: 1 }}>
-          {' '}
-          Замовлення прийнято!{' '}
-        </Typography>{' '}
+          Замовлення прийнято!
+        </Typography>
         <Typography color="text.secondary" sx={{ mb: 2, lineHeight: 1.7 }}>
-          {' '}
           Дякуємо, що обрали <b>LuxeRoe</b>! 💛 Ваше замовлення успішно оформлене і вже передане в
-          обробку. Наш менеджер зв’яжеться з вами найближчим часом для підтвердження деталей
-          доставки. <br /> Оплата — <b>накладений платіж</b> (при отриманні у відділенні Нової
-          пошти). Після відправки ви отримаєте SMS/Viber з номером ТТН, за яким можна відстежувати
-          посилку. Відправлення — щодня до 15:00.{' '}
-        </Typography>{' '}
+          обробку.
+        </Typography>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} justifyContent="center">
-          {' '}
           <Button component={Link as any} href="/" variant="contained">
-            {' '}
-            На головну{' '}
-          </Button>{' '}
+            На головну
+          </Button>
           <Button component={Link as any} href="/" sx={{ fontWeight: 700 }}>
-            {' '}
-            Продовжити покупки{' '}
-          </Button>{' '}
-        </Stack>{' '}
+            Продовжити покупки
+          </Button>
+        </Stack>
       </Box>
     )
   }
 
-  // Форма
   return (
     <Box
       sx={{
@@ -330,7 +324,7 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
           disabled={sending}
         />
 
-        {/* Honeypot — невидимое поле (боты часто заполняют всё) */}
+        {/* Honeypot — невидимое поле */}
         <TextField
           label="Компанія"
           value={hpCompany}
@@ -362,7 +356,6 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
           >
             Продовжити покупки
           </Button>
-
           <Button
             variant="contained"
             onClick={checkout}
