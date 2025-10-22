@@ -25,7 +25,8 @@ async function safeJsonPost(url: string, body: unknown) {
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
+    body: JSON.stringify(body),
+    credentials: 'same-origin' // помогает с приватными проверками
   })
   if (!res.ok) {
     let details = ''
@@ -56,6 +57,11 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
   const [sent, setSent] = useState<null | 'ok' | 'err'>(null)
   const [errMsg, setErrMsg] = useState<string | null>(null)
 
+  // ── антиспам (honeypot + «человеческое время» + client nonce) ──
+  const [hpCompany, setHpCompany] = useState('') // honeypot — должно остаться пустым
+  const [startedAt] = useState(() => Date.now()) // момент начала заполнения формы
+  const [clientNonce] = useState(genEventId()) // одноразовый рандом
+
   const subtotal = useMemo(() => items.reduce((s, it) => s + lineTotalFor(it), 0), [items])
 
   const pixelContents = useMemo(
@@ -68,7 +74,7 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
     [items]
   )
 
-  // Демо-режим: /cart?demo=ok — сразу показать экран успеха (без редиректов)
+  // Демо-режим: /cart?demo=ok — сразу показать экран успеха
   useEffect(() => {
     if (searchParams?.get('demo') === 'ok') setSent('ok')
   }, [searchParams])
@@ -113,7 +119,7 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
         type: it.type
       }))
 
-      // 3) API
+      // 3) API (+ антиспам-метки)
       await safeJsonPost('/api/order', {
         customer: {
           firstName: firstName.trim(),
@@ -127,7 +133,14 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
         items: payloadItems,
         subtotal,
         source: typeof window !== 'undefined' ? window.location.href : undefined,
-        eventId
+        eventId,
+        antiSpam: {
+          hpCompany, // honeypot — ДОЛЖЕН быть пуст
+          startedAt, // когда начали заполнять
+          clientNonce, // одноразовый маркер
+          formMs: Date.now() - startedAt
+          // captcha: '...'             // если подключишь Turnstile — сюда токен
+        }
       })
 
       // 4) Purchase (антидубли по eventId)
@@ -146,7 +159,7 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
         }
       } catch {}
 
-      // 5) Успех — остаёмся на этой же странице, показываем блок подтверждения
+      // 5) Успех — остаёмся на странице, показываем подтверждение
       onSuccess?.()
       clear()
       setFirst('')
@@ -155,6 +168,7 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
       setCity('')
       setBranch('')
       setNote('')
+      setHpCompany('')
       setSent('ok')
     } catch (e: any) {
       setErrMsg(e?.message || 'Помилка оформлення. Спробуйте ще раз.')
@@ -165,7 +179,7 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
     }
   }
 
-  /** Экран підтвердження — без автопереходов */
+  // Экран підтвердження
   if (sent === 'ok') {
     return (
       <Box
@@ -178,35 +192,36 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
           textAlign: 'center'
         }}
       >
-        <CheckCircleRoundedIcon sx={{ fontSize: 48, color: '#2DAF92', mb: 1 }} />
-
+        {' '}
+        <CheckCircleRoundedIcon sx={{ fontSize: 48, color: '#2DAF92', mb: 1 }} />{' '}
         <Typography variant="h6" fontWeight={900} sx={{ mb: 1 }}>
-          Замовлення прийнято!
-        </Typography>
-
+          {' '}
+          Замовлення прийнято!{' '}
+        </Typography>{' '}
         <Typography color="text.secondary" sx={{ mb: 2, lineHeight: 1.7 }}>
+          {' '}
           Дякуємо, що обрали <b>LuxeRoe</b>! 💛 Ваше замовлення успішно оформлене і вже передане в
           обробку. Наш менеджер зв’яжеться з вами найближчим часом для підтвердження деталей
-          доставки.
-          <br />
-          Оплата — <b>накладений платіж</b> (при отриманні у відділенні Нової пошти). Після
-          відправки ви отримаєте SMS/Viber з номером ТТН, за яким можна відстежувати посилку.
-          Відправлення — щодня до 15:00.
-        </Typography>
-
+          доставки. <br /> Оплата — <b>накладений платіж</b> (при отриманні у відділенні Нової
+          пошти). Після відправки ви отримаєте SMS/Viber з номером ТТН, за яким можна відстежувати
+          посилку. Відправлення — щодня до 15:00.{' '}
+        </Typography>{' '}
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} justifyContent="center">
+          {' '}
           <Button component={Link as any} href="/" variant="contained">
-            На головну
-          </Button>
+            {' '}
+            На головну{' '}
+          </Button>{' '}
           <Button component={Link as any} href="/" sx={{ fontWeight: 700 }}>
-            Продовжити покупки
-          </Button>
-        </Stack>
+            {' '}
+            Продовжити покупки{' '}
+          </Button>{' '}
+        </Stack>{' '}
       </Box>
     )
   }
 
-  /** Форма */
+  // Форма
   return (
     <Box
       sx={{
@@ -313,6 +328,24 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
           InputLabelProps={{ shrink: true }}
           inputProps={{ name: 'note' }}
           disabled={sending}
+        />
+
+        {/* Honeypot — невидимое поле (боты часто заполняют всё) */}
+        <TextField
+          label="Компанія"
+          value={hpCompany}
+          onChange={e => setHpCompany(e.target.value)}
+          inputProps={{ name: 'company', autoComplete: 'off', tabIndex: -1 }}
+          sx={{
+            position: 'absolute',
+            left: -99999,
+            width: 1,
+            height: 1,
+            p: 0,
+            m: 0,
+            opacity: 0,
+            pointerEvents: 'none'
+          }}
         />
 
         <Stack
