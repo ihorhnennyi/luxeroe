@@ -53,7 +53,6 @@ fbq('track', 'PageView');
             </noscript>
           </>
         )}
-        <Script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer />
 
         <ThemeRegistry>
           <div className="app-shell">

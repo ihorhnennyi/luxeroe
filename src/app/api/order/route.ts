@@ -12,33 +12,29 @@ const MIN_FORM_MS = 3500 // min time to fill form (ms)
 const RATE_WINDOW_MS = 10 * 60_000 // 10 minutes
 const RATE_MAX_IP = 5 // max orders per IP per window
 const RATE_MAX_PHONE = 3 // max orders per phone per window
+const RATE_MAX_FP = 3 // max orders per fingerprint (ip+ua+sid) per window
 const DUP_TTL_MS = 15 * 60_000 // dedup hold time
 const MAX_BODY_BYTES = 64 * 1024 // 64KB payload cap
 
 /* ───────────────── in-memory stores (move to Redis in prod) ───────────────── */
 const ipBuckets = new Map<string, { hits: number; ts: number }>()
 const phoneBuckets = new Map<string, { hits: number; ts: number }>()
+const fpBuckets = new Map<string, { hits: number; ts: number }>() // NEW
 const dedupe = new Map<string, number>()
-const bannedIp = new Set<string>([
-  // примеры:
-  // '185.147.196.251',
-  // '124.198.132.121'
-])
-const bannedPhone = new Set<string>([
-  // '380XXXXXXXXX'
-])
+const bannedIp = new Set<string>([])
+const bannedPhone = new Set<string>([])
 
-// periodic cleanup to avoid memory growth
+// periodic cleanup
 setInterval(() => {
   const now = Date.now()
   for (const [k, v] of ipBuckets) if (now - v.ts > RATE_WINDOW_MS * 3) ipBuckets.delete(k)
   for (const [k, v] of phoneBuckets) if (now - v.ts > RATE_WINDOW_MS * 3) phoneBuckets.delete(k)
+  for (const [k, v] of fpBuckets) if (now - v.ts > RATE_WINDOW_MS * 3) fpBuckets.delete(k)
   for (const [k, until] of dedupe) if (until < now) dedupe.delete(k)
 }, 15 * 60_000).unref()
 
 /* ───────────────── utils ───────────────── */
 function getIp(req: Request) {
-  // Priority: CF → X-Real-IP → X-Forwarded-For → fallback
   const cf = req.headers.get('cf-connecting-ip')
   if (cf) return cf
   const xri = req.headers.get('x-real-ip')
@@ -57,6 +53,17 @@ function rateOk(map: Map<string, { hits: number; ts: number }>, key: string, max
   b.hits++
   return b.hits <= max
 }
+function rateOkComposite(key: string, max: number) {
+  // NEW
+  const now = Date.now()
+  const b = fpBuckets.get(key)
+  if (!b || now - b.ts > RATE_WINDOW_MS) {
+    fpBuckets.set(key, { hits: 1, ts: now })
+    return true
+  }
+  b.hits++
+  return b.hits <= max
+}
 function looksLikeBotUA(ua: string) {
   const s = (ua || '').toLowerCase()
   const bad =
@@ -64,13 +71,9 @@ function looksLikeBotUA(ua: string) {
       s
     )
   if (bad) return true
-  // soft white-hint: common browsers with platform mention
-  // (не баним редкие норм. браузеры — возвращаем false)
-  // const good = /(chrome|safari|firefox|edg)\/\d+.*(windows|macintosh|linux|android|iphone|ipad)/.test(s)
   return false
 }
 function sameOrigin(req: Request) {
-  // Check Origin or Referer against SITE_URL
   const site = (process.env.SITE_URL || '').replace(/\/+$/, '')
   if (!site) return true
   const origin = req.headers.get('origin') || ''
@@ -97,8 +100,28 @@ function sanitizeNote(s?: string) {
   t = t.slice(0, NOTE_MAX)
   return t || undefined
 }
+function getCookie(req: Request, name: string) {
+  // NEW
+  const m = (req.headers.get('cookie') || '').match(
+    new RegExp('(?:^|;\\s*)' + name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '=([^;]+)')
+  )
+  return m?.[1] || ''
+}
+function getSidFromCookie(req: Request) {
+  // NEW
+  return getCookie(req, 'lr_sid')
+}
+function getNonceFromCookie(req: Request) {
+  // NEW
+  return getCookie(req, 'lr_nonce')
+}
+function fpKey(ip: string, ua: string, sid: string) {
+  // NEW
+  const u = (ua || '').toLowerCase().slice(0, 80)
+  return `${ip}|${u}|${sid || 'no-sid'}`
+}
 async function verifyTurnstile(token?: string, ip?: string) {
-  if (!token || !process.env.CF_TURNSTILE_SECRET) return true // not enforced if secret missing
+  if (!token || !process.env.CF_TURNSTILE_SECRET) return true
   const res = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
@@ -167,7 +190,8 @@ const PayloadSchema = z.object({
     .object({
       hpCompany: z.string().optional(),
       formMs: z.number().optional(),
-      cfToken: z.string().optional() // Turnstile token (optional)
+      cfToken: z.string().optional(),
+      nonce: z.string().min(10).max(128).optional() // NEW
     })
     .optional()
 })
@@ -175,7 +199,7 @@ const PayloadSchema = z.object({
 /* ───────────────── handler ───────────────── */
 export async function POST(req: Request) {
   try {
-    // method/content-type/size pre-checks (fast fail)
+    // pre-checks
     if (req.method !== 'POST') {
       return NextResponse.json({ ok: false, error: 'method_not_allowed' }, { status: 405 })
     }
@@ -214,7 +238,14 @@ export async function POST(req: Request) {
     }
     const body = parsed.data
 
-    // 3) антиспам: honeypot + «человеческое» время + (опция) Turnstile
+    // 2.1) композитный rate-limit: IP + UA + lr_sid
+    const sid = getSidFromCookie(req)
+    const fp = fpKey(ip, ua, sid)
+    if (!rateOkComposite(fp, RATE_MAX_FP)) {
+      return NextResponse.json({ ok: false, error: 'rate_fp' }, { status: 429 })
+    }
+
+    // 3) антиспам: honeypot + «человеческое» время + (опция) Turnstile + nonce
     if ((body.antiSpam?.hpCompany || '').trim()) {
       return NextResponse.json({ ok: false, error: 'honeypot' }, { status: 400 })
     }
@@ -223,8 +254,15 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: 'too_fast' }, { status: 400 })
     }
     if (process.env.CF_TURNSTILE_SECRET) {
-      const ok = await verifyTurnstile(body.antiSpam?.cfToken, ip)
-      if (!ok) return NextResponse.json({ ok: false, error: 'captcha' }, { status: 400 })
+      const pass = await verifyTurnstile(body.antiSpam?.cfToken, ip)
+      if (!pass) return NextResponse.json({ ok: false, error: 'captcha' }, { status: 400 })
+    }
+
+    // double-submit cookie: lr_nonce (cookie) must equal antiSpam.nonce
+    const cookieNonce = getNonceFromCookie(req)
+    const bodyNonce = body.antiSpam?.nonce || ''
+    if (!cookieNonce || !bodyNonce || cookieNonce !== bodyNonce) {
+      return NextResponse.json({ ok: false, error: 'nonce' }, { status: 400 })
     }
 
     // 4) rate-limit по телефону (+ бан-лист)
@@ -272,7 +310,7 @@ export async function POST(req: Request) {
       subtotal: body.subtotal
     })
 
-    // 7) отправка (fail-soft)
+    // 7) отправка
     const tgRes = await sendOrderToTelegram({
       ...(json as OrderPayload),
       note,
@@ -282,7 +320,14 @@ export async function POST(req: Request) {
     const ok = !!tgRes
     if (!ok) console.error('[ORDER] TG FAIL')
 
-    return NextResponse.json({ ok, telegramOk: ok }, { status: ok ? 200 : 500 })
+    // Сжигаем одноразовый nonce (чтобы нельзя было переиспользовать)
+    const headers = new Headers()
+    headers.append('Set-Cookie', 'lr_nonce=; Max-Age=0; Path=/; SameSite=Lax; Secure')
+
+    return new NextResponse(JSON.stringify({ ok, telegramOk: ok }), {
+      status: ok ? 200 : 500,
+      headers
+    })
   } catch (e) {
     console.error('Order error:', e)
     return NextResponse.json({ ok: false, error: 'server_error' }, { status: 500 })

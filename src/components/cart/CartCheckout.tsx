@@ -52,6 +52,10 @@ declare global {
   }
 }
 
+function genNonce() {
+  return Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2)
+}
+
 /* ───────── component ───────── */
 export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) {
   const searchParams = useSearchParams()
@@ -112,7 +116,7 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
           callback: (token: string) => setCfToken(token),
           'error-callback': () => setCfToken(null),
           'expired-callback': () => setCfToken(null),
-          size: 'invisible' // не мешаем UX
+          size: 'invisible'
         })
       }
     }
@@ -175,6 +179,10 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
           ? Date.now() - formStartRef.current
           : undefined
 
+      // одноразовый nonce (double-submit cookie)
+      const nonce = genNonce()
+      document.cookie = `lr_nonce=${nonce}; Max-Age=600; Path=/; SameSite=Lax; Secure`
+
       await safeJsonPost('/api/order', {
         customer: {
           firstName: normalize(firstName),
@@ -192,7 +200,7 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
         antiSpam: {
           hpCompany,
           formMs,
-          // если Turnstile не подключён — поле null и сервер пропустит
+          nonce,
           cfToken: cfToken || undefined
         }
       })
