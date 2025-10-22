@@ -184,6 +184,7 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
     }
   }
 
+  // Экран підтвердження
   if (sent === 'ok') {
     return (
       <Box
@@ -196,22 +197,31 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
           textAlign: 'center'
         }}
       >
-        <CheckCircleRoundedIcon sx={{ fontSize: 48, color: '#2DAF92', mb: 1 }} />
+        {' '}
+        <CheckCircleRoundedIcon sx={{ fontSize: 48, color: '#2DAF92', mb: 1 }} />{' '}
         <Typography variant="h6" fontWeight={900} sx={{ mb: 1 }}>
-          Замовлення прийнято!
-        </Typography>
+          {' '}
+          Замовлення прийнято!{' '}
+        </Typography>{' '}
         <Typography color="text.secondary" sx={{ mb: 2, lineHeight: 1.7 }}>
+          {' '}
           Дякуємо, що обрали <b>LuxeRoe</b>! 💛 Ваше замовлення успішно оформлене і вже передане в
-          обробку.
-        </Typography>
+          обробку. Наш менеджер зв’яжеться з вами найближчим часом для підтвердження деталей
+          доставки. <br /> Оплата — <b>накладений платіж</b> (при отриманні у відділенні Нової
+          пошти). Після відправки ви отримаєте SMS/Viber з номером ТТН, за яким можна відстежувати
+          посилку. Відправлення — щодня до 15:00.{' '}
+        </Typography>{' '}
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} justifyContent="center">
+          {' '}
           <Button component={Link as any} href="/" variant="contained">
-            На головну
-          </Button>
+            {' '}
+            На головну{' '}
+          </Button>{' '}
           <Button component={Link as any} href="/" sx={{ fontWeight: 700 }}>
-            Продовжити покупки
-          </Button>
-        </Stack>
+            {' '}
+            Продовжити покупки{' '}
+          </Button>{' '}
+        </Stack>{' '}
       </Box>
     )
   }
