@@ -8,9 +8,9 @@ import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded'
 import { Alert, Box, Button, Stack, TextField, Typography } from '@mui/material'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
-/* ───────── Константы ───────── */
+/* ───────── constants & helpers ───────── */
 const PAYMENT_METHOD = 'cod' as const
 
 const genEventId = () =>
@@ -41,28 +41,31 @@ async function safeJsonPost(url: string, body: unknown) {
   }
 }
 
-/* ───────── Компонент ───────── */
 type Stage = 'idle' | 'sending' | 'done' | 'error'
 
+/* ───────── component ───────── */
 export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) {
   const searchParams = useSearchParams()
   const { items, clear } = useCart()
 
-  // поля формы
   const [firstName, setFirst] = useState('')
   const [lastName, setLast] = useState('')
   const [phone, setPhone] = useState('+380')
   const [city, setCity] = useState('')
   const [branch, setBranch] = useState('')
+  const [note, setNote] = useState('')
 
-  // honeypot (скрытое поле для ботов)
+  // honeypot — невидимое поле (боты часто его заполняют)
   const [hpCompany, setHpCompany] = useState('')
 
-  // состояние
   const [stage, setStage] = useState<Stage>('idle')
   const [errMsg, setErrMsg] = useState<string | null>(null)
 
+  // чтобы не отправили повторно «двойным» кликом/тапом
+  const sendingRef = useRef(false)
+
   const subtotal = useMemo(() => items.reduce((s, it) => s + lineTotalFor(it), 0), [items])
+
   const pixelContents = useMemo(
     () =>
       items.map(it => {
@@ -73,13 +76,14 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
     [items]
   )
 
-  // Демо-успех: /cart?demo=ok
+  // демо-режим: /cart?demo=ok
   useEffect(() => {
     if (searchParams?.get('demo') === 'ok') setStage('done')
   }, [searchParams])
 
+  const disabled = stage === 'sending'
   const canSubmit =
-    stage !== 'sending' &&
+    !disabled &&
     items.length > 0 &&
     firstName.trim() &&
     lastName.trim() &&
@@ -87,22 +91,28 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
     branch.trim() &&
     phoneOk(phone)
 
-  const checkout = async () => {
-    if (!canSubmit) return
+  function normalize(str: string) {
+    return str.replace(/\s+/g, ' ').trim()
+  }
+
+  const submit = async () => {
+    if (!canSubmit || sendingRef.current) return
     setErrMsg(null)
 
-    // простой антибот: если honeypot заполнен — не отправляем
-    if (hpCompany && hpCompany.trim().length > 0) {
+    // простейшая антибот-логика: если honeypot заполнен — откажем локально
+    if (hpCompany.trim()) {
       setErrMsg('Помилка оформлення. Спробуйте ще раз.')
       setStage('error')
       return
     }
 
     try {
+      sendingRef.current = true
       setStage('sending')
+
       const eventId = genEventId()
 
-      // 1) fb pixel — InitiateCheckout
+      // pixel: InitiateCheckout
       try {
         fbqTrack('InitiateCheckout', {
           event_id: eventId,
@@ -114,7 +124,6 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
         })
       } catch {}
 
-      // 2) payload для API
       const payloadItems = items.map(it => ({
         id: it.id,
         title: it.title,
@@ -127,22 +136,22 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
 
       await safeJsonPost('/api/order', {
         customer: {
-          firstName: firstName.trim(),
-          lastName: lastName.trim(),
+          firstName: normalize(firstName),
+          lastName: normalize(lastName),
           phone: phone.trim(),
-          city: city.trim(),
-          branch: branch.trim()
+          city: normalize(city),
+          branch: normalize(branch)
         },
         paymentMethod: PAYMENT_METHOD,
-        // на сервер antiSpam может игнорироваться, но пусть уедет для возможной фильтрации
-        antiSpam: { hpCompany },
+        note: note.trim() || undefined,
         items: payloadItems,
         subtotal,
         source: typeof window !== 'undefined' ? window.location.href : undefined,
-        eventId
+        eventId,
+        antiSpam: { hpCompany } // сервер может использовать/игнорировать
       })
 
-      // 3) fb pixel — Purchase (анти-дубль по eventId)
+      // pixel: Purchase (анти-дубль по eventId)
       try {
         const key = 'fb:last_purchase_id'
         const last = sessionStorage.getItem(key)
@@ -166,11 +175,21 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
       setPhone('+380')
       setCity('')
       setBranch('')
+      setNote('')
       setHpCompany('')
       setStage('done')
     } catch (e: any) {
       setErrMsg('Помилка оформлення. Перевірте поля та спробуйте ще раз.')
       setStage('error')
+    } finally {
+      sendingRef.current = false
+    }
+  }
+
+  const onKeyDownSubmit = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && canSubmit) {
+      e.preventDefault()
+      submit()
     }
   }
 
@@ -210,7 +229,6 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
     )
   }
 
-  const disabled = stage === 'sending'
   const cta = stage === 'sending' ? 'Надсилання…' : 'Оформити'
 
   return (
@@ -221,8 +239,9 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
         borderColor: 'divider',
         borderRadius: 3,
         p: { xs: 2, md: 3 },
-        opacity: disabled ? 0.95 : 1
+        opacity: stage === 'sending' ? 0.95 : 1
       }}
+      onKeyDown={onKeyDownSubmit}
     >
       <Stack direction="row" justifyContent="space-between" alignItems="baseline" sx={{ mb: 2 }}>
         <Typography color="text.secondary" sx={{ fontSize: { xs: 14, sm: 15 } }}>
@@ -310,6 +329,17 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
           disabled={disabled}
         />
 
+        <TextField
+          label="Коментар до замовлення (необов’язково)"
+          value={note}
+          onChange={e => setNote(e.target.value)}
+          multiline
+          minRows={2}
+          InputLabelProps={{ shrink: true }}
+          inputProps={{ name: 'note' }}
+          disabled={disabled}
+        />
+
         {/* Honeypot — полностью невидимое поле для ботов */}
         <TextField
           label="Компанія"
@@ -322,7 +352,6 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
             'aria-hidden': 'true'
           }}
           sx={{
-            // вне экрана и не кликабельно
             position: 'absolute',
             left: -99999,
             top: 'auto',
@@ -353,7 +382,7 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
 
           <Button
             variant="contained"
-            onClick={checkout}
+            onClick={submit}
             disabled={!canSubmit}
             sx={{
               order: { xs: 1, sm: 2 },
