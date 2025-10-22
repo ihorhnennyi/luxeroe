@@ -1,3 +1,4 @@
+// src/components/cart/CartCheckout.tsx
 'use client'
 
 import { fbqTrack } from '@/lib/fb'
@@ -9,6 +10,7 @@ import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { useEffect, useMemo, useState } from 'react'
 
+/* ───────── Константы ───────── */
 const PAYMENT_METHOD = 'cod' as const
 
 const genEventId = () =>
@@ -39,44 +41,26 @@ async function safeJsonPost(url: string, body: unknown) {
   }
 }
 
-// ─── SHA-256 + PoW на клиенте ───
-async function sha256Hex(s: string) {
-  const enc = new TextEncoder().encode(s)
-  const buf = await crypto.subtle.digest('SHA-256', enc)
-  const bytes = Array.from(new Uint8Array(buf))
-  return bytes.map(b => b.toString(16).padStart(2, '0')).join('')
-}
-async function solvePow(payload: string, difficulty: number) {
-  const prefix = '0'.repeat(Math.max(1, difficulty || 5))
-  let nonce = 0
-  const t0 = performance.now()
-  while (performance.now() - t0 < 1500) {
-    const hash = await sha256Hex(`${payload}:${nonce}`)
-    if (hash.startsWith(prefix)) return { nonce, hash }
-    nonce++
-  }
-  throw new Error('PoW timeout')
-}
+/* ───────── Компонент ───────── */
+type Stage = 'idle' | 'sending' | 'done' | 'error'
 
 export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) {
   const searchParams = useSearchParams()
   const { items, clear } = useCart()
 
+  // поля формы
   const [firstName, setFirst] = useState('')
   const [lastName, setLast] = useState('')
   const [phone, setPhone] = useState('+380')
   const [city, setCity] = useState('')
   const [branch, setBranch] = useState('')
-  const [note, setNote] = useState('')
 
-  const [sending, setSending] = useState(false)
-  const [sent, setSent] = useState<null | 'ok' | 'err'>(null)
-  const [errMsg, setErrMsg] = useState<string | null>(null)
-
-  // антиспам
+  // honeypot (скрытое поле для ботов)
   const [hpCompany, setHpCompany] = useState('')
-  const [startedAt] = useState(() => Date.now())
-  const [clientNonce] = useState(genEventId())
+
+  // состояние
+  const [stage, setStage] = useState<Stage>('idle')
+  const [errMsg, setErrMsg] = useState<string | null>(null)
 
   const subtotal = useMemo(() => items.reduce((s, it) => s + lineTotalFor(it), 0), [items])
   const pixelContents = useMemo(
@@ -89,12 +73,13 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
     [items]
   )
 
+  // Демо-успех: /cart?demo=ok
   useEffect(() => {
-    if (searchParams?.get('demo') === 'ok') setSent('ok')
+    if (searchParams?.get('demo') === 'ok') setStage('done')
   }, [searchParams])
 
   const canSubmit =
-    !sending &&
+    stage !== 'sending' &&
     items.length > 0 &&
     firstName.trim() &&
     lastName.trim() &&
@@ -103,27 +88,21 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
     phoneOk(phone)
 
   const checkout = async () => {
-    if (!canSubmit || sending) return
+    if (!canSubmit) return
     setErrMsg(null)
 
+    // простой антибот: если honeypot заполнен — не отправляем
+    if (hpCompany && hpCompany.trim().length > 0) {
+      setErrMsg('Помилка оформлення. Спробуйте ще раз.')
+      setStage('error')
+      return
+    }
+
     try {
-      setSending(true)
+      setStage('sending')
       const eventId = genEventId()
 
-      // 0) получаем форм-токен
-      const tRes = await fetch('/api/anti/token', { method: 'GET', credentials: 'same-origin' })
-      if (!tRes.ok) throw new Error('Антиспам токен недоступен')
-      const tJson = await tRes.json()
-      if (!tJson?.ok) throw new Error('Антиспам токен не выдан')
-      const formToken = tJson.formToken as string
-      const signature = tJson.signature as string
-
-      // достанем payload чтобы решить PoW (нужна diff)
-      const payloadStr = atob(formToken)
-      const { diff } = JSON.parse(payloadStr)
-      const { nonce: powNonce, hash: powHash } = await solvePow(payloadStr, diff)
-
-      // 1) pixel: InitiateCheckout
+      // 1) fb pixel — InitiateCheckout
       try {
         fbqTrack('InitiateCheckout', {
           event_id: eventId,
@@ -135,7 +114,7 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
         })
       } catch {}
 
-      // 2) payload
+      // 2) payload для API
       const payloadItems = items.map(it => ({
         id: it.id,
         title: it.title,
@@ -146,7 +125,6 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
         type: it.type
       }))
 
-      // 3) POST
       await safeJsonPost('/api/order', {
         customer: {
           firstName: firstName.trim(),
@@ -156,24 +134,15 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
           branch: branch.trim()
         },
         paymentMethod: PAYMENT_METHOD,
-        note: note.trim() || undefined,
+        // на сервер antiSpam может игнорироваться, но пусть уедет для возможной фильтрации
+        antiSpam: { hpCompany },
         items: payloadItems,
         subtotal,
         source: typeof window !== 'undefined' ? window.location.href : undefined,
-        eventId,
-        antiSpam: {
-          hpCompany,
-          startedAt,
-          clientNonce,
-          formMs: Date.now() - startedAt,
-          formToken,
-          signature,
-          powNonce,
-          powHash
-        }
+        eventId
       })
 
-      // 4) pixel: Purchase (антидубли по eventId)
+      // 3) fb pixel — Purchase (анти-дубль по eventId)
       try {
         const key = 'fb:last_purchase_id'
         const last = sessionStorage.getItem(key)
@@ -189,7 +158,7 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
         }
       } catch {}
 
-      // 5) успех
+      // успех
       onSuccess?.()
       clear()
       setFirst('')
@@ -197,20 +166,17 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
       setPhone('+380')
       setCity('')
       setBranch('')
-      setNote('')
       setHpCompany('')
-      setSent('ok')
+      setStage('done')
     } catch (e: any) {
-      setErrMsg(e?.message || 'Помилка оформлення. Спробуйте ще раз.')
-      setSent('err')
-    } finally {
-      setSending(false)
-      setTimeout(() => setSent(prev => (prev === 'ok' ? 'ok' : null)), 1800)
+      setErrMsg('Помилка оформлення. Перевірте поля та спробуйте ще раз.')
+      setStage('error')
     }
   }
 
-  // Экран підтвердження
-  if (sent === 'ok') {
+  /* ───────── UI ───────── */
+
+  if (stage === 'done') {
     return (
       <Box
         sx={{
@@ -222,36 +188,31 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
           textAlign: 'center'
         }}
       >
-        {' '}
-        <CheckCircleRoundedIcon sx={{ fontSize: 48, color: '#2DAF92', mb: 1 }} />{' '}
+        <CheckCircleRoundedIcon sx={{ fontSize: 48, color: '#2DAF92', mb: 1 }} />
         <Typography variant="h6" fontWeight={900} sx={{ mb: 1 }}>
-          {' '}
-          Замовлення прийнято!{' '}
-        </Typography>{' '}
+          Замовлення прийнято!
+        </Typography>
         <Typography color="text.secondary" sx={{ mb: 2, lineHeight: 1.7 }}>
-          {' '}
           Дякуємо, що обрали <b>LuxeRoe</b>! 💛 Ваше замовлення успішно оформлене і вже передане в
           обробку. Наш менеджер зв’яжеться з вами найближчим часом для підтвердження деталей
-          доставки. <br /> Оплата — <b>накладений платіж</b> (при отриманні у відділенні Нової
-          пошти). Після відправки ви отримаєте SMS/Viber з номером ТТН, за яким можна відстежувати
-          посилку. Відправлення — щодня до 15:00.{' '}
-        </Typography>{' '}
+          доставки. <br /> Оплата — <b>накладений платіж</b>. Після відправки ви отримаєте SMS/Viber
+          з номером ТТН. Відправлення — щодня до 15:00.
+        </Typography>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} justifyContent="center">
-          {' '}
           <Button component={Link as any} href="/" variant="contained">
-            {' '}
-            На головну{' '}
-          </Button>{' '}
+            На головну
+          </Button>
           <Button component={Link as any} href="/" sx={{ fontWeight: 700 }}>
-            {' '}
-            Продовжити покупки{' '}
-          </Button>{' '}
-        </Stack>{' '}
+            Продовжити покупки
+          </Button>
+        </Stack>
       </Box>
     )
   }
 
-  // форма
+  const disabled = stage === 'sending'
+  const cta = stage === 'sending' ? 'Надсилання…' : 'Оформити'
+
   return (
     <Box
       sx={{
@@ -260,7 +221,7 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
         borderColor: 'divider',
         borderRadius: 3,
         p: { xs: 2, md: 3 },
-        opacity: sending ? 0.9 : 1
+        opacity: disabled ? 0.95 : 1
       }}
     >
       <Stack direction="row" justifyContent="space-between" alignItems="baseline" sx={{ mb: 2 }}>
@@ -291,7 +252,7 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
             required
             InputLabelProps={{ shrink: true }}
             inputProps={{ autoComplete: 'given-name', name: 'firstName' }}
-            disabled={sending}
+            disabled={disabled}
           />
           <TextField
             label="Прізвище"
@@ -302,7 +263,7 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
             required
             InputLabelProps={{ shrink: true }}
             inputProps={{ autoComplete: 'family-name', name: 'lastName' }}
-            disabled={sending}
+            disabled={disabled}
           />
         </Stack>
 
@@ -321,7 +282,7 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
             FormHelperTextProps={{ sx: { m: 0 } }}
             InputLabelProps={{ shrink: true }}
             inputProps={{ autoComplete: 'tel', enterKeyHint: 'next', name: 'phone' }}
-            disabled={sending}
+            disabled={disabled}
           />
           <TextField
             label="Місто"
@@ -332,7 +293,7 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
             required
             InputLabelProps={{ shrink: true }}
             inputProps={{ autoComplete: 'address-level2', name: 'city' }}
-            disabled={sending}
+            disabled={disabled}
           />
         </Stack>
 
@@ -346,35 +307,32 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
           required
           InputLabelProps={{ shrink: true }}
           inputProps={{ name: 'branch' }}
-          disabled={sending}
+          disabled={disabled}
         />
 
-        <TextField
-          label="Коментар до замовлення (необов’язково)"
-          value={note}
-          onChange={e => setNote(e.target.value)}
-          multiline
-          minRows={2}
-          InputLabelProps={{ shrink: true }}
-          inputProps={{ name: 'note' }}
-          disabled={sending}
-        />
-
-        {/* Honeypot — невидимое поле */}
+        {/* Honeypot — полностью невидимое поле для ботов */}
         <TextField
           label="Компанія"
           value={hpCompany}
           onChange={e => setHpCompany(e.target.value)}
-          inputProps={{ name: 'company', autoComplete: 'off', tabIndex: -1 }}
+          inputProps={{
+            name: 'company',
+            autoComplete: 'off',
+            tabIndex: -1,
+            'aria-hidden': 'true'
+          }}
           sx={{
+            // вне экрана и не кликабельно
             position: 'absolute',
             left: -99999,
+            top: 'auto',
             width: 1,
             height: 1,
             p: 0,
             m: 0,
             opacity: 0,
-            pointerEvents: 'none'
+            pointerEvents: 'none',
+            visibility: 'hidden'
           }}
         />
 
@@ -388,10 +346,11 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
             component={Link as any}
             href="/"
             sx={{ order: { xs: 2, sm: 1 }, alignSelf: { xs: 'stretch', sm: 'auto' } }}
-            disabled={sending}
+            disabled={disabled}
           >
             Продовжити покупки
           </Button>
+
           <Button
             variant="contained"
             onClick={checkout}
@@ -407,15 +366,15 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
               }
             }}
             fullWidth
-            aria-busy={sending ? 'true' : undefined}
+            aria-busy={disabled ? 'true' : undefined}
           >
-            {sending ? 'Надсилання…' : 'Оформити'}
+            {cta}
           </Button>
         </Stack>
 
-        {(sent === 'err' || errMsg) && (
+        {(stage === 'error' || errMsg) && (
           <Typography sx={{ color: 'error.main', fontWeight: 700 }}>
-            {errMsg || 'Перевірте поля та спробуйте ще раз.'}
+            {errMsg || 'Помилка оформлення. Спробуйте ще раз.'}
           </Typography>
         )}
       </Stack>

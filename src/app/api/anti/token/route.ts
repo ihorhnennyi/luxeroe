@@ -23,7 +23,7 @@ function makeSid() {
 }
 function chooseDifficulty(ip: string) {
   // можно повышать при частых запросах/IP; базово 5 нулей
-  return 5
+  return 3
 }
 
 export async function GET(req: Request) {
