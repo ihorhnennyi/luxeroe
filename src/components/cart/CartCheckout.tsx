@@ -1,23 +1,22 @@
-// src/components/cart/CartCheckout.tsx
 'use client'
 
 import { fbqTrack } from '@/lib/fb'
 import { useCart } from '@/store/cart'
 import { lineTotalFor } from '@/utils/cartPricing'
 import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded'
-import { Alert, Box, Button, Stack, TextField, Typography } from '@mui/material'
+import { Alert, Box, Stack, Typography } from '@mui/material'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-/* ───────── constants & helpers ───────── */
+import ContactFields from './checkout/ContactFields'
+import DeliveryFields from './checkout/DeliveryFields'
+import HoneypotField from './checkout/HoneypotField'
+import NotesField from './checkout/NotesField'
+import SubmitBar from './checkout/SubmitBar'
+import SummaryRow from './checkout/SummaryRow'
+
 const PAYMENT_METHOD = 'cod' as const
-
-const genEventId = () =>
-  typeof crypto !== 'undefined' && 'randomUUID' in crypto
-    ? crypto.randomUUID()
-    : `${Date.now()}_${Math.random().toString(36).slice(2)}`
-
 const phoneOk = (raw: string) => /^\+?\d[\d\s-]{8,}$/.test(raw.trim())
 
 async function safeJsonPost(url: string, body: unknown) {
@@ -27,36 +26,20 @@ async function safeJsonPost(url: string, body: unknown) {
     body: JSON.stringify(body),
     credentials: 'same-origin'
   })
-  if (!res.ok) {
-    let details = ''
-    try {
-      details = await res.text()
-    } catch {}
-    throw new Error(`HTTP ${res.status} ${res.statusText}${details ? ` — ${details}` : ''}`)
-  }
+  if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`)
   try {
     return await res.json()
   } catch {
     return null
   }
 }
+const genEventId = () =>
+  typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID()
+    : `${Date.now()}_${Math.random().toString(36).slice(2)}`
 
 type Stage = 'idle' | 'sending' | 'done' | 'error'
 
-declare global {
-  interface Window {
-    turnstile?: {
-      render: (el: string | HTMLElement, opts: any) => void
-      reset?: (widgetId?: string) => void
-    }
-  }
-}
-
-function genNonce() {
-  return Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2)
-}
-
-/* ───────── component ───────── */
 export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) {
   const searchParams = useSearchParams()
   const { items, clear } = useCart()
@@ -68,29 +51,18 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
   const [branch, setBranch] = useState('')
   const [note, setNote] = useState('')
 
-  // honeypot — невидимое поле (боты часто его заполняют)
   const [hpCompany, setHpCompany] = useState('')
 
-  // Turnstile token (если подключён скрипт + есть sitekey)
-  const [cfToken, setCfToken] = useState<string | null>(null)
-  const turnstileHostRef = useRef<HTMLDivElement | null>(null)
-  const siteKey = process.env.NEXT_PUBLIC_CF_TURNSTILE_SITE_KEY
-
-  // стадия и ошибки
   const [stage, setStage] = useState<Stage>('idle')
   const [errMsg, setErrMsg] = useState<string | null>(null)
-
-  // чтобы не отправили повторно «двойным» кликом/тапом
   const sendingRef = useRef(false)
 
-  // таймер заполнения формы — включается при первом вводе
   const formStartRef = useRef<number | null>(null)
   const touchForm = () => {
     if (!formStartRef.current) formStartRef.current = Date.now()
   }
 
   const subtotal = useMemo(() => items.reduce((s, it) => s + lineTotalFor(it), 0), [items])
-
   const pixelContents = useMemo(
     () =>
       items.map(it => {
@@ -101,27 +73,9 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
     [items]
   )
 
-  // демо-режим: /cart?demo=ok
   useEffect(() => {
     if (searchParams?.get('demo') === 'ok') setStage('done')
   }, [searchParams])
-
-  // Рендер Turnstile (если ключ задан и скрипт подключён в layout)
-  useEffect(() => {
-    if (!siteKey) return
-    const mount = () => {
-      if (window.turnstile && turnstileHostRef.current) {
-        window.turnstile.render(turnstileHostRef.current, {
-          sitekey: siteKey,
-          callback: (token: string) => setCfToken(token),
-          'error-callback': () => setCfToken(null),
-          'expired-callback': () => setCfToken(null),
-          size: 'invisible'
-        })
-      }
-    }
-    mount()
-  }, [siteKey])
 
   const disabled = stage === 'sending'
   const canSubmit =
@@ -139,7 +93,6 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
     if (!canSubmit || sendingRef.current) return
     setErrMsg(null)
 
-    // простейшая антибот-логика: если honeypot заполнен — откажем локально
     if (hpCompany.trim()) {
       setErrMsg('Помилка оформлення. Спробуйте ще раз.')
       setStage('error')
@@ -174,15 +127,6 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
         type: it.type
       }))
 
-      const formMs =
-        typeof window !== 'undefined' && formStartRef.current
-          ? Date.now() - formStartRef.current
-          : undefined
-
-      // одноразовый nonce (double-submit cookie)
-      const nonce = genNonce()
-      document.cookie = `lr_nonce=${nonce}; Max-Age=600; Path=/; SameSite=Lax; Secure`
-
       await safeJsonPost('/api/order', {
         customer: {
           firstName: normalize(firstName),
@@ -197,15 +141,9 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
         subtotal,
         source: typeof window !== 'undefined' ? window.location.href : undefined,
         eventId,
-        antiSpam: {
-          hpCompany,
-          formMs,
-          nonce,
-          cfToken: cfToken || undefined
-        }
+        antiSpam: { hpCompany }
       })
 
-      // pixel: Purchase (анти-дубль по eventId)
       try {
         const key = 'fb:last_purchase_id'
         const last = sessionStorage.getItem(key)
@@ -221,7 +159,6 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
         }
       } catch {}
 
-      // успех
       onSuccess?.()
       clear()
       setFirst('')
@@ -231,10 +168,9 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
       setBranch('')
       setNote('')
       setHpCompany('')
-      setCfToken(null)
       formStartRef.current = null
       setStage('done')
-    } catch (e: any) {
+    } catch {
       setErrMsg('Помилка оформлення. Перевірте поля та спробуйте ще раз.')
       setStage('error')
     } finally {
@@ -248,8 +184,6 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
       submit()
     }
   }
-
-  /* ───────── UI ───────── */
 
   if (stage === 'done') {
     return (
@@ -268,18 +202,23 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
           Замовлення прийнято!
         </Typography>
         <Typography color="text.secondary" sx={{ mb: 2, lineHeight: 1.7 }}>
-          Дякуємо, що обрали <b>LuxeRoe</b>! 💛 Ваше замовлення успішно оформлене і вже передане в
-          обробку. Наш менеджер зв’яжеться з вами найближчим часом для підтвердження деталей
-          доставки. <br /> Оплата — <b>накладений платіж</b>. Після відправки ви отримаєте SMS/Viber
-          з номером ТТН. Відправлення — щодня до 15:00.
+          Дякуємо, що обрали <b>LuxeRoe</b>! 💛 Наш менеджер зв’яжеться для підтвердження. Оплата —{' '}
+          <b>накладений платіж</b>. Після відправки буде SMS/Viber з ТТН.
         </Typography>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} justifyContent="center">
-          <Button component={Link as any} href="/" variant="contained">
-            На головну
-          </Button>
-          <Button component={Link as any} href="/" sx={{ fontWeight: 700 }}>
-            Продовжити покупки
-          </Button>
+          <Link href="/" passHref legacyBehavior>
+            <a className="MuiButton-root MuiButton-contained MuiButton-containedPrimary MuiButton-sizeMedium MuiButton-containedSizeMedium MuiButtonBase-root">
+              На головну
+            </a>
+          </Link>
+          <Link href="/" passHref legacyBehavior>
+            <a
+              className="MuiButton-root MuiButton-text MuiButton-sizeMedium MuiButton-textSizeMedium MuiButtonBase-root"
+              style={{ fontWeight: 700 }}
+            >
+              Продовжити покупки
+            </a>
+          </Link>
         </Stack>
       </Box>
     )
@@ -300,14 +239,7 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
       }}
       onKeyDown={onKeyDownSubmit}
     >
-      <Stack direction="row" justifyContent="space-between" alignItems="baseline" sx={{ mb: 2 }}>
-        <Typography color="text.secondary" sx={{ fontSize: { xs: 14, sm: 15 } }}>
-          Разом
-        </Typography>
-        <Typography fontWeight={900} sx={{ fontSize: { xs: 18, sm: 20 } }}>
-          {subtotal.toLocaleString('uk-UA')} ₴
-        </Typography>
-      </Stack>
+      <SummaryRow subtotal={subtotal} />
 
       <Alert
         icon={false}
@@ -318,173 +250,42 @@ export default function CartCheckout({ onSuccess }: { onSuccess?: () => void }) 
       </Alert>
 
       <Stack spacing={1.25}>
-        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-          <TextField
-            label="Ім’я"
-            value={firstName}
-            onChange={e => {
-              touchForm()
-              setFirst(e.target.value)
-            }}
-            fullWidth
-            size="small"
-            required
-            InputLabelProps={{ shrink: true }}
-            inputProps={{ autoComplete: 'given-name', name: 'firstName' }}
-            disabled={disabled}
-          />
-          <TextField
-            label="Прізвище"
-            value={lastName}
-            onChange={e => {
-              touchForm()
-              setLast(e.target.value)
-            }}
-            fullWidth
-            size="small"
-            required
-            InputLabelProps={{ shrink: true }}
-            inputProps={{ autoComplete: 'family-name', name: 'lastName' }}
-            disabled={disabled}
-          />
-        </Stack>
-
-        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-          <TextField
-            label="Телефон"
-            value={phone}
-            onChange={e => {
-              touchForm()
-              setPhone(e.target.value)
-            }}
-            inputMode="tel"
-            placeholder="+380"
-            fullWidth
-            size="small"
-            required
-            error={!!phone && !phoneOk(phone)}
-            helperText={!!phone && !phoneOk(phone) ? 'Перевірте формат телефону' : ' '}
-            FormHelperTextProps={{ sx: { m: 0 } }}
-            InputLabelProps={{ shrink: true }}
-            inputProps={{ autoComplete: 'tel', enterKeyHint: 'next', name: 'phone' }}
-            disabled={disabled}
-          />
-          <TextField
-            label="Місто"
-            value={city}
-            onChange={e => {
-              touchForm()
-              setCity(e.target.value)
-            }}
-            fullWidth
-            size="small"
-            required
-            InputLabelProps={{ shrink: true }}
-            inputProps={{ autoComplete: 'address-level2', name: 'city' }}
-            disabled={disabled}
-          />
-        </Stack>
-
-        <TextField
-          label="Відділення Нової пошти"
-          value={branch}
-          onChange={e => {
-            touchForm()
-            setBranch(e.target.value)
-          }}
-          placeholder="Наприклад: Відділення №6"
-          fullWidth
-          size="small"
-          required
-          InputLabelProps={{ shrink: true }}
-          inputProps={{ name: 'branch' }}
-          disabled={disabled}
+        <ContactFields
+          firstName={firstName}
+          lastName={lastName}
+          phone={phone}
+          setFirst={setFirst}
+          setLast={setLast}
+          setPhone={setPhone}
+          disabled={stage === 'sending'}
+          phoneOk={phoneOk}
+          touchForm={touchForm}
         />
 
-        <TextField
-          label="Коментар до замовлення (необов’язково)"
-          value={note}
-          onChange={e => {
-            touchForm()
-            setNote(e.target.value)
-          }}
-          multiline
-          minRows={2}
-          InputLabelProps={{ shrink: true }}
-          inputProps={{ name: 'note' }}
-          disabled={disabled}
+        <DeliveryFields
+          city={city}
+          branch={branch}
+          setCity={setCity}
+          setBranch={setBranch}
+          disabled={stage === 'sending'}
+          touchForm={touchForm}
         />
 
-        {/* Honeypot — полностью невидимое поле для ботов */}
-        <TextField
-          label="Компанія"
-          value={hpCompany}
-          onChange={e => setHpCompany(e.target.value)}
-          inputProps={{
-            name: 'company',
-            autoComplete: 'off',
-            tabIndex: -1,
-            'aria-hidden': 'true'
-          }}
-          sx={{
-            position: 'absolute',
-            left: -99999,
-            top: 'auto',
-            width: 1,
-            height: 1,
-            p: 0,
-            m: 0,
-            opacity: 0,
-            pointerEvents: 'none',
-            visibility: 'hidden'
-          }}
+        <NotesField
+          note={note}
+          setNote={setNote}
+          disabled={stage === 'sending'}
+          touchForm={touchForm}
         />
 
-        {/* Turnstile контейнер (невидимый, если используется) */}
-        {siteKey ? (
-          <div
-            ref={turnstileHostRef}
-            id="cf-turnstile"
-            style={{ position: 'absolute', left: -99999, width: 1, height: 1, overflow: 'hidden' }}
-            aria-hidden="true"
-          />
-        ) : null}
+        <HoneypotField hpCompany={hpCompany} setHpCompany={setHpCompany} />
 
-        <Stack
-          direction={{ xs: 'column', sm: 'row' }}
-          spacing={1}
-          justifyContent="space-between"
-          sx={{ pt: 0.5 }}
-        >
-          <Button
-            component={Link as any}
-            href="/"
-            sx={{ order: { xs: 2, sm: 1 }, alignSelf: { xs: 'stretch', sm: 'auto' } }}
-            disabled={disabled}
-          >
-            Продовжити покупки
-          </Button>
-
-          <Button
-            variant="contained"
-            onClick={submit}
-            disabled={!canSubmit}
-            sx={{
-              order: { xs: 1, sm: 2 },
-              fontWeight: 900,
-              borderRadius: 2,
-              py: { xs: 1, sm: 1.1 },
-              background: 'linear-gradient(180deg, #F2C14E 0%, #E08E45 55%, #B75C36 100%)',
-              '&:hover': {
-                background: 'linear-gradient(180deg, #EFB547 0%, #DB7F3F 55%, #A6512F 100%)'
-              }
-            }}
-            fullWidth
-            aria-busy={disabled ? 'true' : undefined}
-          >
-            {cta}
-          </Button>
-        </Stack>
+        <SubmitBar
+          canSubmit={!!canSubmit}
+          disabled={stage === 'sending'}
+          onSubmit={submit}
+          cta={cta}
+        />
 
         {(stage === 'error' || errMsg) && (
           <Typography sx={{ color: 'error.main', fontWeight: 700 }}>
